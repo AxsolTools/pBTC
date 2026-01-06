@@ -91,6 +91,60 @@ export async function getEnhancedTransactionsForTokenMint(
   }
 
   try {
+    // Use Helius Enhanced Transactions API for token mint
+    // This is more reliable than getTransactionsForAddress for token mints
+    const response = await fetch(
+      `https://api.helius.xyz/v0/addresses/${tokenMint}/transactions?api-key=${HELIUS_API_KEY}&limit=${Math.min(limit, 100)}`,
+      {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      }
+    )
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`[HELIUS] Enhanced API error: ${response.status} - ${errorText}`)
+      // Fallback to RPC method
+      return await getTransactionsViaRPC(tokenMint, limit)
+    }
+
+    const data: HeliusEnhancedResponse = await response.json()
+
+    if (!data.transactions || data.transactions.length === 0) {
+      console.log(`[HELIUS] No transactions found via Enhanced API, trying RPC fallback...`)
+      return await getTransactionsViaRPC(tokenMint, limit)
+    }
+
+    // Filter for swaps involving this token
+    const swapTransactions: HeliusEnhancedTransaction[] = []
+    for (const tx of data.transactions) {
+      const swapInfo = detectTokenSwapFromEnhanced(tx, tokenMint)
+      if (swapInfo && swapInfo.amount > 0.01) {
+        swapTransactions.push(tx)
+      }
+    }
+
+    console.log(`[HELIUS] Found ${swapTransactions.length} token swaps for mint ${tokenMint.slice(0, 8)}...`)
+    return swapTransactions.slice(0, limit)
+  } catch (error) {
+    console.error("[HELIUS] Error fetching enhanced transactions for token mint:", error)
+    // Fallback to RPC method
+    return await getTransactionsViaRPC(tokenMint, limit)
+  }
+}
+
+/**
+ * Fallback: Use RPC method to get transactions for token mint
+ */
+async function getTransactionsViaRPC(
+  tokenMint: string,
+  limit: number = 50,
+): Promise<HeliusEnhancedTransaction[]> {
+  if (!HELIUS_API_KEY) {
+    return []
+  }
+
+  try {
     // Use Helius getTransactionsForAddress RPC method
     const response = await fetch(`https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`, {
       method: "POST",
@@ -115,7 +169,7 @@ export async function getEnhancedTransactionsForTokenMint(
 
     if (!response.ok) {
       const errorText = await response.text()
-      console.error(`[HELIUS] Error fetching transactions: ${response.status} - ${errorText}`)
+      console.error(`[HELIUS] RPC Error fetching transactions: ${response.status} - ${errorText}`)
       return []
     }
 
@@ -129,6 +183,7 @@ export async function getEnhancedTransactionsForTokenMint(
     const transactions = data.result?.data || []
 
     if (transactions.length === 0) {
+      console.log(`[HELIUS] No transactions found via RPC for mint ${tokenMint.slice(0, 8)}...`)
       return []
     }
 

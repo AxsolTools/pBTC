@@ -32,8 +32,8 @@ export function getConnection(): Connection {
   return connectionInstance
 }
 
-// Token addresses
-export const PBTC_TOKEN_MINT = process.env.PBTC_TOKEN_MINT || ""
+// Token addresses - HARDCODED for production
+export const PBTC_TOKEN_MINT = process.env.PBTC_TOKEN_MINT || "HSLNfbLriUzmbVYxQKHpUcfKZwQbhdAU9D35aXRApump"
 export const WSOL_MINT = "So11111111111111111111111111111111111111112" // Wrapped SOL (9 decimals)
 
 // Helius API Key (read at module level like PBTC_TOKEN_MINT)
