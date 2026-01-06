@@ -191,8 +191,7 @@ export async function POST(request: Request) {
     }
 
     // Step 4: Swap ALL remaining SOL to WSOL for distribution
-    // Get current wallet balance after buyback
-    const connection = getConnection()
+    // Get current wallet balance after buyback (reuse existing connection)
     const walletBalanceAfterBuy = await connection.getBalance(keypair.publicKey)
     const walletBalanceSolAfterBuy = walletBalanceAfterBuy / 1e9
     // Reserve 0.01 SOL for transaction fees
