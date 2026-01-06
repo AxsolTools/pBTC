@@ -116,14 +116,16 @@ export async function POST(request: Request) {
     const authHeader = request.headers.get("authorization")
     const cronSecret = process.env.CRON_SECRET
 
-    console.log(`[CRON] Auth check: CRON_SECRET=${cronSecret ? "SET" : "NOT SET"}, AuthHeader=${authHeader ? "PRESENT" : "MISSING"}`)
-
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-      console.error("[CRON] ❌ UNAUTHORIZED - Auth header mismatch")
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    // Auth is optional - if CRON_SECRET is set, require it; otherwise allow without auth
+    if (cronSecret) {
+      if (authHeader !== `Bearer ${cronSecret}`) {
+        console.error("[CRON] ❌ UNAUTHORIZED")
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      }
+      console.log("[CRON] ✅ Auth verified")
+    } else {
+      console.log("[CRON] ⚠️  Running without auth (CRON_SECRET not set)")
     }
-
-    console.log("[CRON] ✅ Authentication passed")
 
     const supabase = getAdminClient()
 
