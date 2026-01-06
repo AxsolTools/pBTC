@@ -144,7 +144,7 @@ export function ActivityTerminal() {
   const [newIds, setNewIds] = useState<Set<string>>(new Set())
 
   const { data, mutate } = useSWR("/api/activity?limit=50", fetcher, {
-    refreshInterval: 3000, // Poll every 3 seconds for on-chain data
+    refreshInterval: 2000, // Poll every 2 seconds for faster updates
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
     onSuccess: (data) => {

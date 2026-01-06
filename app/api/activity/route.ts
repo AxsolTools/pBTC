@@ -41,14 +41,12 @@ export async function GET(request: Request) {
       }
     }
 
-    // Fallback: Fetch historical on-chain activities if database is empty
+    // ALWAYS fetch RPC data for real-time updates (merge with DB data)
     let onChainActivities: any[] = []
-    if (dbActivities.length === 0) {
-      console.log("[ACTIVITY] No webhook data found, fetching historical on-chain activities...")
-      console.log(`[ACTIVITY] PBTC_TOKEN_MINT from env: ${process.env.PBTC_TOKEN_MINT ? `${process.env.PBTC_TOKEN_MINT.slice(0, 8)}...` : "NOT SET"}`)
-      onChainActivities = await getOnChainActivities(limit)
-      console.log(`[ACTIVITY] Found ${onChainActivities.length} historical on-chain activities`)
-    }
+    console.log("[ACTIVITY] Fetching real-time on-chain activities...")
+    console.log(`[ACTIVITY] PBTC_TOKEN_MINT from env: ${process.env.PBTC_TOKEN_MINT ? `${process.env.PBTC_TOKEN_MINT.slice(0, 8)}...` : "NOT SET"}`)
+    onChainActivities = await getOnChainActivities(limit * 2) // Get more to ensure we catch all recent swaps
+    console.log(`[ACTIVITY] Found ${onChainActivities.length} on-chain activities`)
 
     // Merge activities, prioritizing database (webhook) data
     const activityMap = new Map<string, any>()

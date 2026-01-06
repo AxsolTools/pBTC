@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { PBTCLogo } from "./logo"
 
-const CONTRACT_ADDRESS = "YOUR_CONTRACT_ADDRESS_HERE"
+const CONTRACT_ADDRESS = "CA"
 
 export function Footer() {
   const [copied, setCopied] = useState(false)
@@ -36,7 +36,7 @@ export function Footer() {
             </button>
 
             <a
-              href="https://twitter.com"
+              href="https://x.com/pbtc2011"
               target="_blank"
               rel="noopener noreferrer"
               className="text-sm text-muted hover:text-foreground transition-colors"

@@ -104,7 +104,7 @@ export async function getEnhancedTransactionsForTokenMint(
           {
             transactionDetails: "full",
             sortOrder: "desc", // Newest first
-            limit: Math.min(limit, 100), // Max 100 for full transactions
+            limit: Math.min(limit * 2, 200), // Get more transactions to catch all recent swaps
             filters: {
               status: "succeeded", // Only successful transactions
             },
