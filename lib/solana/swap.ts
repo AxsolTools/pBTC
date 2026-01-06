@@ -51,22 +51,34 @@ export async function buyPbtcWithSol(keypair: Keypair, solAmount: number, retrie
         await new Promise(resolve => setTimeout(resolve, waitTime))
       }
 
-      console.log(`[BUYBACK] Buying pBTC with ${solAmount} SOL... (attempt ${attempt}/${maxRetries})`)
-      console.log(`[BUYBACK] Token mint: ${PBTC_TOKEN_MINT}`)
+      // Check wallet balance before attempting buy
+      const walletBalance = await connection.getBalance(keypair.publicKey)
+      const walletBalanceSol = walletBalance / 1e9
+      
+      if (walletBalanceSol < solAmount + 0.01) {
+        const errorMsg = `Insufficient balance: need ${solAmount + 0.01} SOL, have ${walletBalanceSol} SOL`
+        lastError = new Error(errorMsg)
+        if (attempt < maxRetries) continue
+        return {
+          success: false,
+          error: lastError.message,
+        }
+      }
 
       // Use PumpPortal API to buy tokens
       // Adaptive slippage: start with base, increase on retries for volatile markets
-      const baseSlippage = parseFloat(process.env.BUYBACK_SLIPPAGE || "15") // Default 15% for volatile tokens
+      // PumpPortal expects slippage as a decimal (0.15 = 15%), not a percentage (15)
+      const baseSlippagePercent = parseFloat(process.env.BUYBACK_SLIPPAGE || "15") // Default 15% for volatile tokens
       // Increase slippage by 5% on each retry attempt (15%, 20%, 25%)
-      const slippageTolerance = baseSlippage + ((attempt - 1) * 5)
-      console.log(`[BUYBACK] Using slippage tolerance: ${slippageTolerance}% (attempt ${attempt})`)
+      const slippagePercent = baseSlippagePercent + ((attempt - 1) * 5)
+      const slippageTolerance = slippagePercent / 100 // Convert to decimal (15% -> 0.15)
       
       const tradeBody = {
         publicKey: keypair.publicKey.toBase58(),
         action: "buy",
         mint: PBTC_TOKEN_MINT,
         amount: solAmount, // Amount in SOL
-        slippage: slippageTolerance, // Adaptive slippage tolerance
+        slippage: slippageTolerance, // Slippage as decimal (0.15 = 15%)
         priorityFee: 0.0001,
         pool: "pump",
       }
@@ -94,7 +106,6 @@ export async function buyPbtcWithSol(keypair: Keypair, solAmount: number, retrie
       tx.sign([keypair])
 
       // Send to RPC
-      console.log(`[BUYBACK] Submitting buy transaction... (attempt ${attempt})`)
       const signature = await connection.sendTransaction(tx, {
         skipPreflight: false,
         maxRetries: 3,
