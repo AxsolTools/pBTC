@@ -33,19 +33,34 @@ async function getDevWalletKeypair(): Promise<Keypair> {
       return Keypair.fromSecretKey(bs58.decode(privateKey))
     }
     
+    // Try plaintext formats (base58 or JSON array)
     try {
-      return Keypair.fromSecretKey(bs58.decode(envPrivateKey))
-    } catch {
+      console.log("[ADMIN] Trying base58 format...")
+      const decoded = bs58.decode(envPrivateKey)
+      if (decoded.length !== 64) {
+        throw new Error(`Invalid key length: ${decoded.length}, expected 64`)
+      }
+      const keypair = Keypair.fromSecretKey(decoded)
+      console.log(`[ADMIN] ✅ Keypair created from base58: ${keypair.publicKey.toBase58()}`)
+      return keypair
+    } catch (base58Error) {
+      console.log(`[ADMIN] Base58 failed: ${base58Error instanceof Error ? base58Error.message : String(base58Error)}`)
+      console.log("[ADMIN] Trying JSON array format...")
+      // Try JSON array format
       try {
         const parsed = JSON.parse(envPrivateKey)
         if (Array.isArray(parsed)) {
-          return Keypair.fromSecretKey(Uint8Array.from(parsed))
+          const keypair = Keypair.fromSecretKey(Uint8Array.from(parsed))
+          console.log(`[ADMIN] ✅ Keypair created from JSON array: ${keypair.publicKey.toBase58()}`)
+          return keypair
+        } else {
+          throw new Error("JSON is not an array")
         }
-      } catch {
-        throw new Error("Invalid DEV_WALLET_PRIVATE_KEY format.")
+      } catch (jsonError) {
+        console.error(`[ADMIN] JSON parse error: ${jsonError instanceof Error ? jsonError.message : String(jsonError)}`)
+        throw new Error(`Invalid DEV_WALLET_PRIVATE_KEY format. Base58 error: ${base58Error instanceof Error ? base58Error.message : String(base58Error)}`)
       }
     }
-    throw new Error("Failed to parse DEV_WALLET_PRIVATE_KEY")
   }
 
   const supabase = getAdminClient()

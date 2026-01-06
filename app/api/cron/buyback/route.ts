@@ -54,25 +54,31 @@ async function getDevWalletKeypair(): Promise<Keypair> {
     try {
       console.log("[CRON] Trying base58 format...")
       // Try base58 format first
-      const keypair = Keypair.fromSecretKey(bs58.decode(envPrivateKey))
-      console.log(`[CRON] Keypair created from base58: ${keypair.publicKey.toBase58()}`)
+      const decoded = bs58.decode(envPrivateKey)
+      if (decoded.length !== 64) {
+        throw new Error(`Invalid key length: ${decoded.length}, expected 64`)
+      }
+      const keypair = Keypair.fromSecretKey(decoded)
+      console.log(`[CRON] ✅ Keypair created from base58: ${keypair.publicKey.toBase58()}`)
       return keypair
     } catch (base58Error) {
-      console.log("[CRON] Base58 failed, trying JSON array format...")
+      console.log(`[CRON] Base58 failed: ${base58Error instanceof Error ? base58Error.message : String(base58Error)}`)
+      console.log("[CRON] Trying JSON array format...")
       // Try JSON array format
       try {
         const parsed = JSON.parse(envPrivateKey)
         if (Array.isArray(parsed)) {
           const keypair = Keypair.fromSecretKey(Uint8Array.from(parsed))
-          console.log(`[CRON] Keypair created from JSON array: ${keypair.publicKey.toBase58()}`)
+          console.log(`[CRON] ✅ Keypair created from JSON array: ${keypair.publicKey.toBase58()}`)
           return keypair
+        } else {
+          throw new Error("JSON is not an array")
         }
       } catch (jsonError) {
-        console.error("[CRON] JSON parse error:", jsonError)
-        throw new Error("Invalid DEV_WALLET_PRIVATE_KEY format. Use base58, JSON array, or encrypted format (v1:...).")
+        console.error(`[CRON] JSON parse error: ${jsonError instanceof Error ? jsonError.message : String(jsonError)}`)
+        throw new Error(`Invalid DEV_WALLET_PRIVATE_KEY format. Base58 error: ${base58Error instanceof Error ? base58Error.message : String(base58Error)}. JSON error: ${jsonError instanceof Error ? jsonError.message : String(jsonError)}`)
       }
     }
-    throw new Error("Failed to parse DEV_WALLET_PRIVATE_KEY")
   }
 
   // Option 2: Encrypted private key from Supabase
