@@ -30,10 +30,10 @@ export async function GET() {
       const calculatedNext = lastCompletedTime + CYCLE_DURATION
       const now = Date.now()
       
-      // If the calculated next time is in the past, find the next 20-minute interval
+      // If the calculated next time is in the past, restart the countdown from now
+      // This means if a buyback doesn't happen, the timer resets
       if (calculatedNext < now) {
-        const cyclesSinceLast = Math.floor((now - lastCompletedTime) / CYCLE_DURATION) + 1
-        nextBuybackTime = new Date(lastCompletedTime + (cyclesSinceLast * CYCLE_DURATION)).toISOString()
+        nextBuybackTime = new Date(now + CYCLE_DURATION).toISOString()
       } else {
         nextBuybackTime = new Date(calculatedNext).toISOString()
       }
