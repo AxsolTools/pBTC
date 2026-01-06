@@ -1,0 +1,37 @@
+name: pbtc-buyback
+region: nyc
+services:
+  - name: web
+    github:
+      repo: AxsolTools/pBTC
+      branch: main
+    run_command: pnpm start
+    build_command: pnpm build
+    environment_slug: node-js
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    http_port: 3000
+    routes:
+      - path: /
+    envs:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        value: https://rbmzrqsnsvzgoxzpynky.supabase.co
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        value: sb_publishable_brXWCbp-cuyDM9JHWQgyww_xirMdnDH
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJibXpycXNuc3Z6Z294enB5bmt5Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MjQ0OTg2MywiZXhwIjoyMDc4MDI1ODYzfQ.2LWSL_-rKZuaRqugScUUWusupdD2a-z8SACQmcUuh9w
+      - key: HELIUS_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: PBTC_TOKEN_MINT
+        scope: RUN_TIME
+        type: SECRET
+      - key: DEV_WALLET_PRIVATE_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: CRON_SECRET
+        scope: RUN_TIME
+        type: SECRET
+
