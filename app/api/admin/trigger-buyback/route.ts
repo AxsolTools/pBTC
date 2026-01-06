@@ -7,7 +7,7 @@ import { getCreatorVaultBalance, claimCreatorRewards } from "@/lib/solana/claim-
 import { swapSolToWsol } from "@/lib/solana/swap"
 import { distributeToHolders } from "@/lib/solana/distribute"
 import { getTopHolders } from "@/lib/solana/holders"
-import { CLAIM_THRESHOLD_SOL, PBTC_TOKEN_MINT } from "@/lib/solana/connection"
+import { PBTC_TOKEN_MINT, getConnection } from "@/lib/solana/connection"
 
 /**
  * Get the dev wallet keypair from environment or Supabase
@@ -93,19 +93,17 @@ export async function POST(request: Request) {
     const keypair = await getDevWalletKeypair()
     console.log(`[ADMIN] ✅ Using wallet: ${keypair.publicKey.toBase58()}`)
 
-    // Step 1: Check vault balance
-    const { balance } = await getCreatorVaultBalance(keypair.publicKey)
+    // Step 1: Check vault balance and wallet balance
+    const { balance: vaultBalance } = await getCreatorVaultBalance(keypair.publicKey)
+    console.log(`[ADMIN] Vault balance: ${vaultBalance} SOL`)
 
-    if (balance < CLAIM_THRESHOLD_SOL) {
-      return NextResponse.json({
-        success: false,
-        message: `Balance ${balance} SOL below threshold ${CLAIM_THRESHOLD_SOL} SOL`,
-        balance,
-        threshold: CLAIM_THRESHOLD_SOL,
-      })
-    }
+    // Also check wallet balance (might have SOL from previous claims)
+    const connection = getConnection()
+    const walletBalance = await connection.getBalance(keypair.publicKey)
+    const walletBalanceSol = walletBalance / 1e9
+    console.log(`[ADMIN] Wallet balance: ${walletBalanceSol} SOL`)
 
-    // Step 2: Claim rewards
+    // Step 2: Claim rewards (always attempt, even if vault balance is low)
     console.log(`[ADMIN] 📥 Step 2: Claiming creator rewards...`)
     const claimResult = await claimCreatorRewards(keypair, PBTC_TOKEN_MINT)
     
@@ -113,19 +111,47 @@ export async function POST(request: Request) {
       console.log(`[ADMIN] ✅ Claimed ${claimResult.amount} SOL`)
       console.log(`[ADMIN] 📝 TX: ${claimResult.txSignature}`)
     } else {
-      console.error(`[ADMIN] ❌ Claim failed: ${claimResult.error}`)
+      console.log(`[ADMIN] Claim skipped or failed: ${claimResult.error}`)
+      // Continue anyway - might have SOL in wallet already
     }
 
-    if (!claimResult.success) {
-      return NextResponse.json({ error: claimResult.error }, { status: 500 })
+    // Determine amount to use: claimed amount or wallet balance (minus fees)
+    let solAmount = 0
+    if (claimResult.success && claimResult.amount) {
+      solAmount = claimResult.amount
+    } else {
+      // Use wallet balance minus 0.01 SOL for fees
+      const availableBalance = Math.max(0, walletBalanceSol - 0.01)
+      if (availableBalance > 0) {
+        console.log(`[ADMIN] Using wallet balance: ${availableBalance} SOL (from previous claims)`)
+        solAmount = availableBalance
+      } else {
+        console.log(`[ADMIN] No SOL available (vault: ${vaultBalance}, wallet: ${walletBalanceSol})`)
+        return NextResponse.json({
+          success: false,
+          message: `No SOL available to process. Vault: ${vaultBalance} SOL, Wallet: ${walletBalanceSol} SOL`,
+          vaultBalance,
+          walletBalance: walletBalanceSol,
+        }, { status: 400 })
+      }
+    }
+
+    // If claim failed but we have wallet balance, proceed with that
+    if (!claimResult.success && solAmount === 0) {
+      return NextResponse.json({ 
+        success: false, 
+        error: claimResult.error || "No SOL available",
+        vaultBalance,
+        walletBalance: walletBalanceSol,
+      }, { status: 500 })
     }
 
     // Log buyback activity
     const { data: buyback } = await supabase
       .from("buybacks")
       .insert({
-        sol_amount: claimResult.amount,
-        tx_signature: claimResult.txSignature,
+        sol_amount: solAmount,
+        tx_signature: claimResult.txSignature || null,
         status: "processing",
       })
       .select()
@@ -133,15 +159,15 @@ export async function POST(request: Request) {
 
     await supabase.from("activity_log").insert({
       type: "buyback",
-      amount: claimResult.amount,
+      amount: solAmount,
       token_symbol: "SOL",
-      tx_signature: claimResult.txSignature,
-      status: "completed",
+      tx_signature: claimResult.txSignature || null,
+      status: claimResult.success ? "completed" : "using_wallet_balance",
     })
 
     // Step 3: Wrap SOL to WSOL
-    console.log(`[ADMIN] 🔄 Step 3: Swapping ${claimResult.amount} SOL to WSOL...`)
-    const swapResult = await swapSolToWsol(keypair, claimResult.amount!)
+    console.log(`[ADMIN] 🔄 Step 3: Swapping ${solAmount} SOL to WSOL...`)
+    const swapResult = await swapSolToWsol(keypair, solAmount)
     
     if (swapResult.success) {
       console.log(`[ADMIN] ✅ Swapped to ${swapResult.outputAmount} WSOL`)
@@ -245,11 +271,12 @@ export async function POST(request: Request) {
       success: true,
       buyback: {
         id: buyback?.id,
-        solAmount: claimResult.amount,
+        solAmount: solAmount,
         wsolAmount: swapResult.outputAmount,
       },
       distributions: distributions.filter((d) => d.success).length,
       totalDistributed: distributions.filter((d) => d.success).reduce((sum, d) => sum + d.amount, 0),
+      claimSuccess: claimResult.success,
     })
   } catch (error) {
     console.error("[ADMIN] Buyback error:", error)

@@ -7,7 +7,7 @@ import { getCreatorVaultBalance, claimCreatorRewards } from "@/lib/solana/claim-
 import { swapSolToWsol } from "@/lib/solana/swap"
 import { distributeToHolders } from "@/lib/solana/distribute"
 import { getTopHolders } from "@/lib/solana/holders"
-import { CLAIM_THRESHOLD_SOL, PBTC_TOKEN_MINT } from "@/lib/solana/connection"
+import { PBTC_TOKEN_MINT, getConnection } from "@/lib/solana/connection"
 
 /**
  * Get the dev wallet keypair from environment or Supabase
@@ -120,7 +120,7 @@ export async function POST(request: Request) {
     if (cronSecret) {
       if (authHeader !== `Bearer ${cronSecret}`) {
         console.error("[CRON] ❌ UNAUTHORIZED")
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
       }
       console.log("[CRON] ✅ Auth verified")
     } else {
@@ -133,32 +133,19 @@ export async function POST(request: Request) {
     const keypair = await getDevWalletKeypair()
     console.log(`[CRON] Using wallet: ${keypair.publicKey.toBase58()}`)
 
-    // Step 1: Check vault balance
+    // Step 1: Check vault balance and wallet balance
     console.log(`[CRON] Checking vault balance for wallet: ${keypair.publicKey.toBase58()}`)
-    const { balance, vaultAddress } = await getCreatorVaultBalance(keypair.publicKey)
-    console.log(`[CRON] Vault balance: ${balance} SOL (threshold: ${CLAIM_THRESHOLD_SOL} SOL)`)
+    const { balance: vaultBalance, vaultAddress } = await getCreatorVaultBalance(keypair.publicKey)
+    console.log(`[CRON] Vault balance: ${vaultBalance} SOL`)
     console.log(`[CRON] Vault address: ${vaultAddress}`)
 
-    if (balance < CLAIM_THRESHOLD_SOL) {
-      console.log(`[CRON] Balance ${balance} SOL below threshold ${CLAIM_THRESHOLD_SOL} SOL, skipping buyback`)
-      // Log activity but skip this cycle
-      await supabase.from("activity_log").insert({
-        type: "buyback",
-        amount: 0,
-        token_symbol: "SOL",
-        status: "skipped",
-      })
+    // Also check wallet balance (might have SOL from previous claims)
+    const connection = getConnection()
+    const walletBalance = await connection.getBalance(keypair.publicKey)
+    const walletBalanceSol = walletBalance / 1e9
+    console.log(`[CRON] Wallet balance: ${walletBalanceSol} SOL`)
 
-      return NextResponse.json({
-        success: true,
-        message: `Balance ${balance} SOL below threshold ${CLAIM_THRESHOLD_SOL} SOL`,
-        skipped: true,
-        balance,
-        threshold: CLAIM_THRESHOLD_SOL,
-      })
-    }
-
-    // Step 2: Claim rewards
+    // Step 2: Claim rewards (always attempt, even if vault balance is low)
     console.log(`[CRON] Claiming rewards for token mint: ${PBTC_TOKEN_MINT}`)
     const claimResult = await claimCreatorRewards(keypair, PBTC_TOKEN_MINT)
     console.log(`[CRON] Claim result: ${claimResult.success ? "SUCCESS" : "FAILED"}`)
@@ -166,19 +153,48 @@ export async function POST(request: Request) {
       console.log(`[CRON] Claimed amount: ${claimResult.amount} SOL`)
       console.log(`[CRON] Transaction signature: ${claimResult.txSignature}`)
     } else {
-      console.error(`[CRON] Claim error: ${claimResult.error}`)
+      console.log(`[CRON] Claim skipped or failed: ${claimResult.error}`)
+      // Continue anyway - might have SOL in wallet already
     }
 
-    if (!claimResult.success) {
-      return NextResponse.json({ error: claimResult.error }, { status: 500 })
+    // Determine amount to use: claimed amount or wallet balance (minus fees)
+    let solAmount = 0
+    if (claimResult.success && claimResult.amount) {
+      solAmount = claimResult.amount
+    } else {
+      // Use wallet balance minus 0.01 SOL for fees
+      const availableBalance = Math.max(0, walletBalanceSol - 0.01)
+      if (availableBalance > 0) {
+        console.log(`[CRON] Using wallet balance: ${availableBalance} SOL (from previous claims)`)
+        solAmount = availableBalance
+      } else {
+        console.log(`[CRON] No SOL available (vault: ${vaultBalance}, wallet: ${walletBalanceSol})`)
+        return NextResponse.json({
+          success: true,
+          message: `No SOL available to process. Vault: ${vaultBalance} SOL, Wallet: ${walletBalanceSol} SOL`,
+          skipped: true,
+          vaultBalance,
+          walletBalance: walletBalanceSol,
+        })
+      }
+    }
+
+    // If claim failed but we have wallet balance, proceed with that
+    if (!claimResult.success && solAmount === 0) {
+      return NextResponse.json({ 
+        success: false, 
+        error: claimResult.error || "No SOL available",
+        vaultBalance,
+        walletBalance: walletBalanceSol,
+      }, { status: 500 })
     }
 
     // Log buyback activity
     const { data: buyback } = await supabase
       .from("buybacks")
       .insert({
-        sol_amount: claimResult.amount,
-        tx_signature: claimResult.txSignature,
+        sol_amount: solAmount,
+        tx_signature: claimResult.txSignature || null,
         status: "processing",
       })
       .select()
@@ -186,15 +202,15 @@ export async function POST(request: Request) {
 
     await supabase.from("activity_log").insert({
       type: "buyback",
-      amount: claimResult.amount,
+      amount: solAmount,
       token_symbol: "SOL",
-      tx_signature: claimResult.txSignature,
-      status: "completed",
+      tx_signature: claimResult.txSignature || null,
+      status: claimResult.success ? "completed" : "using_wallet_balance",
     })
 
     // Step 3: Wrap SOL to WSOL
-    console.log(`[CRON] Swapping ${claimResult.amount} SOL to WSOL...`)
-    const swapResult = await swapSolToWsol(keypair, claimResult.amount!)
+    console.log(`[CRON] Swapping ${solAmount} SOL to WSOL...`)
+    const swapResult = await swapSolToWsol(keypair, solAmount)
     console.log(`[CRON] Swap result: ${swapResult.success ? "SUCCESS" : "FAILED"}`)
     if (swapResult.success) {
       console.log(`[CRON] Swapped to ${swapResult.outputAmount} WSOL`)
@@ -298,10 +314,11 @@ export async function POST(request: Request) {
       success: true,
       buyback: {
         id: buyback?.id,
-        solAmount: claimResult.amount,
+        solAmount: solAmount,
         wsolAmount: swapResult.outputAmount,
       },
       distributions: distributions.filter((d) => d.success).length,
+      claimSuccess: claimResult.success,
     })
   } catch (error) {
     console.error("[CRON] Buyback error:", error)
