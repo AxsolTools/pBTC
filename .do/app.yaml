@@ -6,8 +6,8 @@ services:
       repo: AxsolTools/pBTC
       branch: main
       deploy_on_push: true
-    run_command: npm start
-    build_command: npm run build
+    run_command: pnpm start
+    build_command: pnpm build
     environment_slug: node-js
     instance_count: 1
     instance_size_slug: basic-xxs
