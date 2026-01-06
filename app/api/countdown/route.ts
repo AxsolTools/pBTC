@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { getAdminClient } from "@/lib/supabase/admin"
 
-const CYCLE_DURATION = 20 * 60 * 1000 // 20 minutes in milliseconds
+const CYCLE_DURATION = 5 * 60 * 1000 // 5 minutes in milliseconds
 
 export async function GET() {
   try {

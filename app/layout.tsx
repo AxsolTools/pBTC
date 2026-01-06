@@ -17,7 +17,7 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "pBTC | Physical Bitcoin - Automated Rewards",
   description:
-    "Buybacks every 20 minutes. SOL rewards auto-wrapped to WSOL and distributed to top 25 holders. The legend of Casascius lives on.",
+    "Buybacks every 5 minutes. SOL rewards auto-wrapped to WSOL and distributed to top 25 holders. The legend of Casascius lives on.",
   generator: "v0.app",
   keywords: ["Bitcoin", "Solana", "pBTC", "Physical Bitcoin", "Crypto Rewards", "WSOL"],
   icons: {

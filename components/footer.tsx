@@ -49,7 +49,7 @@ export function Footer() {
         <div className="mt-6 h-px bg-gradient-to-r from-transparent via-gold/30 to-transparent" />
 
         <p className="mt-6 text-center text-xs text-muted font-mono">
-          Buybacks every 20 minutes • 0.1 SOL threshold • Top 25 holders
+          Buybacks every 5 minutes • 0.1 SOL threshold • Top 25 holders
         </p>
       </div>
     </footer>

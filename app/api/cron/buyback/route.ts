@@ -60,7 +60,7 @@ async function getDevWalletKeypair(): Promise<Keypair> {
   return Keypair.fromSecretKey(bs58.decode(privateKey))
 }
 
-// This endpoint is called by DigitalOcean cron every 20 minutes
+// This endpoint is called by DigitalOcean cron every 5 minutes
 export async function POST(request: Request) {
   try {
     // Verify cron secret

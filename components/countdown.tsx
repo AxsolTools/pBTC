@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { motion } from "framer-motion"
 import useSWR from "swr"
 
-const CYCLE_DURATION = 20 * 60 // 20 minutes in seconds
+const CYCLE_DURATION = 5 * 60 // 5 minutes in seconds
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json())
 

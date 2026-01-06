@@ -48,7 +48,7 @@ export function Hero() {
               transition={{ duration: 0.6, delay: 0.1 }}
               className="mt-4 text-lg text-gold-muted"
             >
-              Buybacks. Swaps. Distributions. Every 20 minutes.
+              Buybacks. Swaps. Distributions. Every 5 minutes.
             </motion.p>
 
             {/* Lore typewriter */}
