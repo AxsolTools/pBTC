@@ -77,3 +77,6 @@ jobs:
       - key: CRON_SECRET
         scope: RUN_TIME
         type: SECRET
+      - key: APP_URL
+        scope: RUN_TIME
+        type: SECRET
