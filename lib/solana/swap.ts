@@ -55,14 +55,18 @@ export async function buyPbtcWithSol(keypair: Keypair, solAmount: number, retrie
       console.log(`[BUYBACK] Token mint: ${PBTC_TOKEN_MINT}`)
 
       // Use PumpPortal API to buy tokens
-      // Increased slippage to 5% to handle volatile markets
-      const slippageTolerance = parseFloat(process.env.BUYBACK_SLIPPAGE || "5")
+      // Adaptive slippage: start with base, increase on retries for volatile markets
+      const baseSlippage = parseFloat(process.env.BUYBACK_SLIPPAGE || "15") // Default 15% for volatile tokens
+      // Increase slippage by 5% on each retry attempt (15%, 20%, 25%)
+      const slippageTolerance = baseSlippage + ((attempt - 1) * 5)
+      console.log(`[BUYBACK] Using slippage tolerance: ${slippageTolerance}% (attempt ${attempt})`)
+      
       const tradeBody = {
         publicKey: keypair.publicKey.toBase58(),
         action: "buy",
         mint: PBTC_TOKEN_MINT,
         amount: solAmount, // Amount in SOL
-        slippage: slippageTolerance, // Configurable slippage tolerance (default 5%)
+        slippage: slippageTolerance, // Adaptive slippage tolerance
         priorityFee: 0.0001,
         pool: "pump",
       }

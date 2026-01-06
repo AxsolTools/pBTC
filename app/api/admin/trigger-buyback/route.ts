@@ -105,13 +105,15 @@ export async function POST(request: Request) {
 
     // Step 2: Claim rewards (always attempt, even if vault balance is low)
     console.log(`[ADMIN] 📥 Step 2: Claiming creator rewards...`)
+    console.log(`[ADMIN] Checking vault balance before claim...`)
     const claimResult = await claimCreatorRewards(keypair, PBTC_TOKEN_MINT)
     
     if (claimResult.success) {
-      console.log(`[ADMIN] ✅ Claimed ${claimResult.amount} SOL`)
-      console.log(`[ADMIN] 📝 TX: ${claimResult.txSignature}`)
+      console.log(`[ADMIN] ✅ SUCCESS: Claimed ${claimResult.amount} SOL from creator vault`)
+      console.log(`[ADMIN] 📝 Claim TX: ${claimResult.txSignature}`)
     } else {
-      console.log(`[ADMIN] Claim skipped or failed: ${claimResult.error}`)
+      console.log(`[ADMIN] ⚠️  Claim skipped or failed: ${claimResult.error}`)
+      console.log(`[ADMIN] Will check wallet balance for existing SOL...`)
       // Continue anyway - might have SOL in wallet already
     }
 

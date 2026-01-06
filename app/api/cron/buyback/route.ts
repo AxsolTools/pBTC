@@ -146,14 +146,16 @@ export async function POST(request: Request) {
     console.log(`[CRON] Wallet balance: ${walletBalanceSol} SOL`)
 
     // Step 2: Claim rewards (always attempt, even if vault balance is low)
-    console.log(`[CRON] Claiming rewards for token mint: ${PBTC_TOKEN_MINT}`)
+    console.log(`[CRON] 📥 Step 2: Claiming creator rewards...`)
+    console.log(`[CRON] Checking vault balance before claim...`)
     const claimResult = await claimCreatorRewards(keypair, PBTC_TOKEN_MINT)
-    console.log(`[CRON] Claim result: ${claimResult.success ? "SUCCESS" : "FAILED"}`)
+    console.log(`[CRON] Claim result: ${claimResult.success ? "✅ SUCCESS" : "❌ FAILED"}`)
     if (claimResult.success) {
-      console.log(`[CRON] Claimed amount: ${claimResult.amount} SOL`)
-      console.log(`[CRON] Transaction signature: ${claimResult.txSignature}`)
+      console.log(`[CRON] ✅ SUCCESS: Claimed ${claimResult.amount} SOL from creator vault`)
+      console.log(`[CRON] 📝 Claim TX: ${claimResult.txSignature}`)
     } else {
-      console.log(`[CRON] Claim skipped or failed: ${claimResult.error}`)
+      console.log(`[CRON] ⚠️  Claim skipped or failed: ${claimResult.error}`)
+      console.log(`[CRON] Will check wallet balance for existing SOL...`)
       // Continue anyway - might have SOL in wallet already
     }
 
