@@ -208,18 +208,29 @@ export async function POST(request: Request) {
       status: claimResult.success ? "completed" : "using_wallet_balance",
     })
 
-    // Step 3: Buy pBTC tokens with SOL (actual buyback)
-    // Reserve 0.01 SOL for fees, use the rest for buying pBTC
-    const buybackAmount = Math.max(0, solAmount - 0.01)
-    console.log(`[CRON] Buying pBTC with ${buybackAmount} SOL (reserving 0.01 SOL for fees)...`)
+    // Step 3: Split claimed SOL: 50% for buying pBTC, 50% for WSOL distribution
+    // Reserve 0.01 SOL total for transaction fees
+    const feeReserve = 0.01
+    const availableForOperations = Math.max(0, solAmount - feeReserve)
+    const buybackAmount = availableForOperations * 0.5  // 50% for buying pBTC
+    const distributionAmount = availableForOperations * 0.5  // 50% for WSOL distribution
+    
+    console.log(`[CRON] 💰 Split claimed SOL: ${solAmount} SOL total`)
+    console.log(`[CRON]   - Reserved for fees: ${feeReserve} SOL`)
+    console.log(`[CRON]   - For buyback: ${buybackAmount.toFixed(6)} SOL (50%)`)
+    console.log(`[CRON]   - For distribution: ${distributionAmount.toFixed(6)} SOL (50%)`)
+
+    // Step 3a: Buy pBTC tokens with 50% of claimed SOL
+    console.log(`[CRON] Buying pBTC with ${buybackAmount.toFixed(6)} SOL (50% of claimed)...`)
     const buyResult = await buyPbtcWithSol(keypair, buybackAmount)
     console.log(`[CRON] Buy result: ${buyResult.success ? "SUCCESS" : "FAILED"}`)
     if (buyResult.success) {
       console.log(`[CRON] Bought pBTC tokens, spent ${buyResult.solSpent} SOL`)
       console.log(`[CRON] Buy transaction signature: ${buyResult.txSignature}`)
     } else {
-      console.error(`[CRON] Buy error: ${buyResult.error}`)
-      // Continue anyway - we'll swap all SOL to WSOL
+      console.error(`[CRON] Buy error after retries: ${buyResult.error}`)
+      console.error(`[CRON] ⚠️  Buyback step failed, but continuing with distribution...`)
+      // Continue anyway - we'll still distribute the 50% allocated for distribution
     }
 
     // Log buyback activity
@@ -233,25 +244,31 @@ export async function POST(request: Request) {
       })
     }
 
-    // Step 4: Swap ALL remaining SOL to WSOL for distribution
-    // Get current wallet balance after buyback (reuse existing connection)
+    // Step 4: Swap the allocated 50% SOL to WSOL for distribution
+    // Check wallet balance after buy to ensure we have enough SOL for the swap
+    // Reuse existing connection variable
     const walletBalanceAfterBuy = await connection.getBalance(keypair.publicKey)
     const walletBalanceSolAfterBuy = walletBalanceAfterBuy / 1e9
-    // Reserve 0.01 SOL for transaction fees
-    const solToSwap = Math.max(0, walletBalanceSolAfterBuy - 0.01)
+    
+    // Use the allocated distribution amount, but don't exceed what's actually available
+    // Reserve 0.005 SOL for swap transaction fees
+    const swapFeeReserve = 0.005
+    const availableForSwap = Math.max(0, walletBalanceSolAfterBuy - swapFeeReserve)
+    const solToSwap = Math.min(distributionAmount, availableForSwap)
     
     if (solToSwap <= 0.001) { // Minimum 0.001 SOL needed
-      console.log(`[CRON] No SOL available to swap to WSOL after buyback (available: ${walletBalanceSolAfterBuy}, reserving 0.01 for fees)`)
+      console.log(`[CRON] No SOL available to swap to WSOL (allocated: ${distributionAmount.toFixed(6)} SOL, available: ${walletBalanceSolAfterBuy.toFixed(6)} SOL)`)
       return NextResponse.json({
         success: true,
         message: "Buyback complete, no remaining SOL for distribution",
         buyback: buyback?.id,
         buyResult: buyResult.success ? { txSignature: buyResult.txSignature, solSpent: buyResult.solSpent } : null,
-        walletBalance: walletBalanceSolAfterBuy,
+        distributionAmount: solToSwap,
+        walletBalanceAfterBuy: walletBalanceSolAfterBuy,
       })
     }
 
-    console.log(`[CRON] Swapping ALL remaining SOL (${solToSwap} SOL) to WSOL for distribution...`)
+    console.log(`[CRON] Swapping ${solToSwap.toFixed(6)} SOL (50% of claimed, ${walletBalanceSolAfterBuy.toFixed(6)} SOL available) to WSOL for distribution...`)
     const swapResult = await swapSolToWsol(keypair, solToSwap)
     console.log(`[CRON] Swap result: ${swapResult.success ? "SUCCESS" : "FAILED"}`)
     if (swapResult.success) {

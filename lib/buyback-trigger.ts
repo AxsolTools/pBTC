@@ -1,8 +1,9 @@
 /**
  * Trigger buyback process - FULL PROCESS:
  * 1. Claim creator rewards (SOL)
- * 2. Swap SOL to WSOL
- * 3. Distribute WSOL to top 25 holders
+ * 2. Buy pBTC tokens with 50% of claimed SOL
+ * 3. Swap remaining 50% of claimed SOL to WSOL
+ * 4. Distribute WSOL to top 25 holders
  * 
  * Can be called on startup or manually
  */
@@ -16,7 +17,7 @@ export async function triggerBuybackNow() {
     console.log(`[BUYBACK-TRIGGER] ========================================`)
     console.log(`[BUYBACK-TRIGGER] 🚀 TRIGGERING FULL BUYBACK PROCESS`)
     console.log(`[BUYBACK-TRIGGER] URL: ${url}`)
-    console.log(`[BUYBACK-TRIGGER] Steps: Claim → Swap SOL→WSOL → Distribute`)
+    console.log(`[BUYBACK-TRIGGER] Steps: Claim → Buy pBTC (50%) → Swap SOL→WSOL (50%) → Distribute`)
     console.log(`[BUYBACK-TRIGGER] ========================================`)
     
     const response = await fetch(url, {
