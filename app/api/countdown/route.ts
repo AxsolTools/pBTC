@@ -16,10 +16,11 @@ export async function GET() {
       .limit(1)
       .single()
 
-    if (error && error.code !== "PGRST116") {
-      // PGRST116 = no rows returned
+    // If table doesn't exist, treat as no buybacks yet
+    if (error && error.code !== "PGRST116" && error.code !== "PGRST205") {
+      // PGRST116 = no rows returned, PGRST205 = table doesn't exist
       console.error("[COUNTDOWN] Supabase error:", error)
-      return NextResponse.json({ error: "Failed to fetch buyback data" }, { status: 500 })
+      // Continue with no buybacks logic instead of returning error
     }
 
     let nextBuybackTime: string
@@ -39,11 +40,17 @@ export async function GET() {
       }
     } else {
       // No buybacks yet - check if we have a countdown start time in system_config
-      const { data: countdownConfig } = await supabase
-        .from("system_config")
-        .select("value")
-        .eq("key", "countdown_start_time")
-        .single()
+      let countdownConfig = null
+      try {
+        const { data } = await supabase
+          .from("system_config")
+          .select("value")
+          .eq("key", "countdown_start_time")
+          .single()
+        countdownConfig = data
+      } catch (configError: any) {
+        // Table doesn't exist or no config - that's okay, we'll use default
+      }
 
       if (countdownConfig?.value) {
         // Use stored countdown start time
@@ -52,12 +59,16 @@ export async function GET() {
         const cyclesSinceStart = Math.floor((now - startTime) / CYCLE_DURATION) + 1
         nextBuybackTime = new Date(startTime + (cyclesSinceStart * CYCLE_DURATION)).toISOString()
       } else {
-        // First time - store current time as countdown start and set next buyback to 20 minutes from now
-        const startTime = new Date().toISOString()
-        await supabase.from("system_config").upsert({
-          key: "countdown_start_time",
-          value: startTime,
-        })
+        // First time - try to store current time as countdown start (if table exists)
+        try {
+          const startTime = new Date().toISOString()
+          await supabase.from("system_config").upsert({
+            key: "countdown_start_time",
+            value: startTime,
+          })
+        } catch {
+          // Table doesn't exist yet - that's okay, we'll just use current time
+        }
         nextBuybackTime = new Date(Date.now() + CYCLE_DURATION).toISOString()
       }
     }
