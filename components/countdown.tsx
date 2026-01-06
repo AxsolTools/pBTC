@@ -17,7 +17,8 @@ export function Countdown() {
   const { data, isLoading: isDataLoading, error } = useSWR("/api/countdown", fetcher, {
     revalidateOnFocus: false,
     revalidateOnReconnect: true,
-    refreshInterval: 5000, // Refresh every 5 seconds to stay in sync
+    refreshInterval: 10000, // Refresh every 10 seconds to stay in sync with server
+    dedupingInterval: 5000, // Dedupe requests within 5 seconds
   })
 
   useEffect(() => {
