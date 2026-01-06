@@ -1,6 +1,11 @@
 import { PublicKey, LAMPORTS_PER_SOL, Keypair } from "@solana/web3.js"
 import bs58 from "bs58"
 import { getConnection, PBTC_TOKEN_MINT, WSOL_MINT } from "./connection"
+import {
+  getEnhancedTransactionsForAddress,
+  detectSwapFromEnhanced,
+  detectBuybackFromEnhanced,
+} from "./helius-enhanced"
 
 interface OnChainActivity {
   type: "buyback" | "swap" | "distribution"
@@ -59,118 +64,155 @@ export async function getOnChainActivities(limit: number = 50): Promise<OnChainA
     const wsolMint = new PublicKey(WSOL_MINT)
     const devWalletPubkey = getDevWalletPublicKey()
 
-    // Get recent signatures for dev wallet to catch buybacks AND swaps
-    let devWalletSignatures: any[] = []
+    // Use Helius Enhanced Transactions API for better swap/buyback detection
     if (devWalletPubkey) {
       try {
-        console.log(`[ACTIVITY] Fetching transactions for dev wallet: ${devWalletPubkey.toString().slice(0, 8)}...`)
-        devWalletSignatures = await connection.getSignaturesForAddress(devWalletPubkey, {
-          limit: limit,
-        })
-        console.log(`[ACTIVITY] Found ${devWalletSignatures.length} dev wallet transactions`)
+        console.log(`[ACTIVITY] Fetching enhanced transactions for dev wallet: ${devWalletPubkey.toString().slice(0, 8)}...`)
+        const enhancedTxs = await getEnhancedTransactionsForAddress(devWalletPubkey.toString(), limit)
+
+        for (const tx of enhancedTxs) {
+          const blockTime = tx.timestamp * 1000 // Convert to milliseconds
+
+          // Detect swaps from enhanced transaction
+          const swapInfo = detectSwapFromEnhanced(tx)
+          if (swapInfo && swapInfo.amount > 0.01) {
+            console.log(`[ACTIVITY] Found swap: ${swapInfo.amount} WSOL in tx ${tx.signature.slice(0, 8)}...`)
+            activities.push({
+              type: "swap",
+              amount: swapInfo.amount,
+              token_symbol: "WSOL",
+              wallet_address: devWalletPubkey.toString(),
+              tx_signature: tx.signature,
+              timestamp: blockTime,
+            })
+          }
+
+          // Detect buybacks from enhanced transaction
+          const buybackInfo = detectBuybackFromEnhanced(tx)
+          if (buybackInfo && buybackInfo.amount > 0.1) {
+            console.log(`[ACTIVITY] Found buyback: ${buybackInfo.amount} SOL in tx ${tx.signature.slice(0, 8)}...`)
+            activities.push({
+              type: "buyback",
+              amount: buybackInfo.amount,
+              token_symbol: "SOL",
+              wallet_address: devWalletPubkey.toString(),
+              tx_signature: tx.signature,
+              timestamp: blockTime,
+            })
+          }
+        }
+
+        console.log(`[ACTIVITY] Processed ${enhancedTxs.length} enhanced transactions`)
       } catch (err) {
-        console.error("[ACTIVITY] Error fetching dev wallet signatures:", err)
+        console.error("[ACTIVITY] Error fetching enhanced transactions, falling back to RPC:", err)
+        // Fallback to RPC method
+        await processTransactionsViaRPC(devWalletPubkey, limit, activities)
       }
     } else {
-      console.warn("[ACTIVITY] Dev wallet not configured, cannot detect swaps/buybacks from dev wallet")
+      console.warn("[ACTIVITY] Dev wallet not configured, cannot detect swaps/buybacks")
     }
 
-    // Process dev wallet transactions (buybacks AND swaps)
-    if (devWalletPubkey && devWalletSignatures.length > 0) {
-      for (const sigInfo of devWalletSignatures) {
-        try {
-          const tx = await connection.getTransaction(sigInfo.signature, {
-            maxSupportedTransactionVersion: 0,
-          })
+    // Fallback RPC processing function (if Enhanced API fails)
+    async function processTransactionsViaRPC(
+      devWalletPubkey: PublicKey,
+      limit: number,
+      activities: OnChainActivity[],
+    ) {
+      try {
+        const devWalletSignatures = await connection.getSignaturesForAddress(devWalletPubkey, {
+          limit: limit,
+        })
+        console.log(`[ACTIVITY] Found ${devWalletSignatures.length} dev wallet transactions (RPC fallback)`)
 
-          if (!tx) continue
+        for (const sigInfo of devWalletSignatures) {
+          try {
+            const tx = await connection.getTransaction(sigInfo.signature, {
+              maxSupportedTransactionVersion: 0,
+            })
 
-          const blockTime = sigInfo.blockTime ? sigInfo.blockTime * 1000 : Date.now()
+            if (!tx) continue
 
-          // Check for WSOL wrapping (swap) - look for sync native instruction
-          const hasSyncNative = tx.transaction.message.instructions.some((ix: any) => {
-            // Program ID for Token Program (sync native instruction)
-            const tokenProgramId = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-            return ix.programId?.toString() === tokenProgramId
-          })
+            const blockTime = sigInfo.blockTime ? sigInfo.blockTime * 1000 : Date.now()
 
-          // Check for WSOL balance changes (swaps)
-          if (hasSyncNative && tx.meta?.postTokenBalances && tx.meta?.preTokenBalances) {
-            const postBalances = tx.meta.postTokenBalances
-            const preBalances = tx.meta.preTokenBalances
+            // Check for WSOL wrapping (swap) - look for sync native instruction
+            const hasSyncNative = tx.transaction.message.instructions.some((ix: any) => {
+              const tokenProgramId = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+              return ix.programId?.toString() === tokenProgramId
+            })
 
-            // Look for WSOL balance increases (wrapping) from dev wallet
-            for (const postBalance of postBalances) {
-              if (postBalance.mint === WSOL_MINT) {
-                const preBalance = preBalances.find(
-                  (b) => b.accountIndex === postBalance.accountIndex && b.mint === WSOL_MINT,
-                )
+            // Check for WSOL balance changes (swaps)
+            if (hasSyncNative && tx.meta?.postTokenBalances && tx.meta?.preTokenBalances) {
+              const postBalances = tx.meta.postTokenBalances
+              const preBalances = tx.meta.preTokenBalances
 
-                if (preBalance) {
-                  const preAmount = parseFloat(preBalance.uiTokenAmount.uiAmountString || "0")
-                  const postAmount = parseFloat(postBalance.uiTokenAmount.uiAmountString || "0")
-                  const amount = postAmount - preAmount
+              for (const postBalance of postBalances) {
+                if (postBalance.mint === WSOL_MINT) {
+                  const preBalance = preBalances.find(
+                    (b) => b.accountIndex === postBalance.accountIndex && b.mint === WSOL_MINT,
+                  )
 
-                  if (amount > 0.01) {
-                    console.log(`[ACTIVITY] Found swap: ${amount} WSOL wrapped in tx ${sigInfo.signature.slice(0, 8)}...`)
-                    activities.push({
-                      type: "swap",
-                      amount: amount,
-                      token_symbol: "WSOL",
-                      wallet_address: devWalletPubkey.toString(),
-                      tx_signature: sigInfo.signature,
-                      timestamp: blockTime,
-                    })
-                    break
-                  }
-                } else if (postBalance.uiTokenAmount.uiAmountString) {
-                  // New WSOL account created (wrapping)
-                  const amount = parseFloat(postBalance.uiTokenAmount.uiAmountString)
-                  if (amount > 0.01) {
-                    console.log(`[ACTIVITY] Found swap: ${amount} WSOL wrapped (new account) in tx ${sigInfo.signature.slice(0, 8)}...`)
-                    activities.push({
-                      type: "swap",
-                      amount: amount,
-                      token_symbol: "WSOL",
-                      wallet_address: devWalletPubkey.toString(),
-                      tx_signature: sigInfo.signature,
-                      timestamp: blockTime,
-                    })
-                    break
+                  if (preBalance) {
+                    const preAmount = parseFloat(preBalance.uiTokenAmount.uiAmountString || "0")
+                    const postAmount = parseFloat(postBalance.uiTokenAmount.uiAmountString || "0")
+                    const amount = postAmount - preAmount
+
+                    if (amount > 0.01) {
+                      activities.push({
+                        type: "swap",
+                        amount: amount,
+                        token_symbol: "WSOL",
+                        wallet_address: devWalletPubkey.toString(),
+                        tx_signature: sigInfo.signature,
+                        timestamp: blockTime,
+                      })
+                      break
+                    }
+                  } else if (postBalance.uiTokenAmount.uiAmountString) {
+                    const amount = parseFloat(postBalance.uiTokenAmount.uiAmountString)
+                    if (amount > 0.01) {
+                      activities.push({
+                        type: "swap",
+                        amount: amount,
+                        token_symbol: "WSOL",
+                        wallet_address: devWalletPubkey.toString(),
+                        tx_signature: sigInfo.signature,
+                        timestamp: blockTime,
+                      })
+                      break
+                    }
                   }
                 }
               }
             }
-          }
 
-          // Check for large SOL transfers (buybacks/claims)
-          if (tx.meta?.postBalances && tx.meta?.preBalances) {
-            const solTransfers: number[] = []
-            for (let i = 0; i < tx.meta.postBalances.length; i++) {
-              const diff = (tx.meta.postBalances[i] - tx.meta.preBalances[i]) / LAMPORTS_PER_SOL
-              if (Math.abs(diff) > 0.1) {
-                solTransfers.push(diff)
+            // Check for large SOL transfers (buybacks/claims)
+            if (tx.meta?.postBalances && tx.meta?.preBalances) {
+              const solTransfers: number[] = []
+              for (let i = 0; i < tx.meta.postBalances.length; i++) {
+                const diff = (tx.meta.postBalances[i] - tx.meta.preBalances[i]) / LAMPORTS_PER_SOL
+                if (Math.abs(diff) > 0.1) {
+                  solTransfers.push(diff)
+                }
+              }
+
+              const largeIncoming = solTransfers.find((t) => t > 0.1)
+              if (largeIncoming) {
+                activities.push({
+                  type: "buyback",
+                  amount: largeIncoming,
+                  token_symbol: "SOL",
+                  wallet_address: devWalletPubkey.toString(),
+                  tx_signature: sigInfo.signature,
+                  timestamp: blockTime,
+                })
               }
             }
-
-            // Large incoming SOL transfers to dev wallet (buybacks)
-            const largeIncoming = solTransfers.find((t) => t > 0.1)
-            if (largeIncoming) {
-              console.log(`[ACTIVITY] Found buyback: ${largeIncoming} SOL in tx ${sigInfo.signature.slice(0, 8)}...`)
-              activities.push({
-                type: "buyback",
-                amount: largeIncoming,
-                token_symbol: "SOL",
-                wallet_address: devWalletPubkey.toString(),
-                tx_signature: sigInfo.signature,
-                timestamp: blockTime,
-              })
-            }
+          } catch (txError) {
+            continue
           }
-        } catch (txError) {
-          // Skip transactions that can't be parsed
-          continue
         }
+      } catch (err) {
+        console.error("[ACTIVITY] RPC fallback error:", err)
       }
     }
 
