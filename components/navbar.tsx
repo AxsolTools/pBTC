@@ -20,7 +20,7 @@ export function Navbar() {
             Leaderboard
           </a>
           <a
-            href="https://solscan.io"
+            href="https://solscan.io/token/HSLNfbLriUzmbVYxQKHpUcfKZwQbhdAU9D35aXRApump"
             target="_blank"
             rel="noopener noreferrer"
             className="text-sm text-muted hover:text-foreground transition-colors"

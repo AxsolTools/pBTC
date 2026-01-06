@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { PBTCLogo } from "./logo"
 
-const CONTRACT_ADDRESS = "CA"
+const CONTRACT_ADDRESS = "HSLNfbLriUzmbVYxQKHpUcfKZwQbhdAU9D35aXRApump"
 
 export function Footer() {
   const [copied, setCopied] = useState(false)
