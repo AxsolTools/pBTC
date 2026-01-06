@@ -217,13 +217,15 @@ export async function POST(request: Request) {
       })
     }
 
-    // Update holders table
+    // Update holders table - explicitly clear old reward data first
     await supabase.from("holders").delete().neq("id", "")
     await supabase.from("holders").insert(
       holders.map((h) => ({
         wallet_address: h.wallet,
         pbtc_balance: h.balance,
         rank: h.rank,
+        last_reward_amount: null, // Explicitly set to null - only updated after successful distribution
+        last_reward_at: null, // Explicitly set to null - only updated after successful distribution
         updated_at: new Date().toISOString(),
       })),
     )
@@ -235,7 +237,7 @@ export async function POST(request: Request) {
     const successful = distributions.filter(d => d.success).length
     console.log(`[ADMIN] ✅ Distributed to ${successful}/${holders.length} holders`)
 
-    // Log distributions
+    // Only update last_reward for holders who actually received distributions
     for (const dist of distributions) {
       if (dist.success) {
         await supabase.from("distributions").insert({

@@ -261,13 +261,15 @@ export async function POST(request: Request) {
       })
     }
 
-    // Update holders table
+    // Update holders table - explicitly clear old reward data first
     await supabase.from("holders").delete().neq("id", "")
     await supabase.from("holders").insert(
       holders.map((h) => ({
         wallet_address: h.wallet,
         pbtc_balance: h.balance,
         rank: h.rank,
+        last_reward_amount: null, // Explicitly set to null - only updated after successful distribution
+        last_reward_at: null, // Explicitly set to null - only updated after successful distribution
         updated_at: new Date().toISOString(),
       })),
     )
@@ -275,9 +277,10 @@ export async function POST(request: Request) {
     // Step 5: Distribute WSOL to holders
     console.log(`[CRON] Distributing ${swapResult.outputAmount} WSOL to ${holders.length} holders...`)
     const distributions = await distributeToHolders(keypair, swapResult.outputAmount!, holders)
-    console.log(`[CRON] Distribution complete: ${distributions.filter(d => d.success).length}/${distributions.length} successful`)
+    const successfulDistributions = distributions.filter(d => d.success)
+    console.log(`[CRON] Distribution complete: ${successfulDistributions.length}/${distributions.length} successful`)
 
-    // Log distributions
+    // Only update last_reward for holders who actually received distributions
     for (const dist of distributions) {
       if (dist.success) {
         await supabase.from("distributions").insert({
@@ -299,7 +302,7 @@ export async function POST(request: Request) {
           status: "completed",
         })
 
-        // Update holder's last reward
+        // Update holder's last reward ONLY if distribution was successful
         await supabase
           .from("holders")
           .update({
@@ -307,6 +310,9 @@ export async function POST(request: Request) {
             last_reward_at: new Date().toISOString(),
           })
           .eq("wallet_address", dist.wallet)
+      } else {
+        // Log failed distribution
+        console.log(`[CRON] Distribution failed for ${dist.wallet}: ${dist.error}`)
       }
     }
 
