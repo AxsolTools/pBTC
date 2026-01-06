@@ -78,6 +78,7 @@ export async function POST(request: Request) {
 
     const supabase = getAdminClient()
     const WSOL_MINT = "So11111111111111111111111111111111111111112"
+    const PBTC_TOKEN_MINT = process.env.PBTC_TOKEN_MINT
     let processed = 0
 
     for (const tx of payload) {
@@ -85,15 +86,53 @@ export async function POST(request: Request) {
         const timestamp = tx.timestamp * 1000 // Convert to milliseconds
         const created_at = new Date(timestamp).toISOString()
 
-        // Detect SWAP transactions (WSOL wrapping)
+        // Detect SWAP transactions (token buys/sells or WSOL wrapping)
         if (tx.type === "SWAP" || tx.description?.toLowerCase().includes("swap") || tx.description?.toLowerCase().includes("wrap")) {
-          // Look for WSOL token transfers
+          // First, check for token swaps (buys/sells of our token)
+          if (PBTC_TOKEN_MINT && tx.tokenTransfers) {
+            const tokenTransfer = tx.tokenTransfers.find((t) => t.mint === PBTC_TOKEN_MINT)
+            const solTransfer = tx.tokenTransfers.find((t) => t.mint === WSOL_MINT) || 
+                               tx.nativeTransfers?.find((t) => Math.abs(t.amount) > 0.01)
+
+            if (tokenTransfer && solTransfer) {
+              // This is a buy/sell of our token
+              let solAmount = 0
+              if ("tokenAmount" in solTransfer) {
+                solAmount = solTransfer.tokenAmount
+              } else if ("amount" in solTransfer) {
+                solAmount = Math.abs(solTransfer.amount)
+              }
+
+              if (solAmount > 0.01) {
+                const wallet = tokenTransfer.toUserAccount || tokenTransfer.fromUserAccount || tx.feePayer
+                console.log(`[WEBHOOK] Processing TOKEN SWAP: ${solAmount} SOL in tx ${tx.signature.slice(0, 8)}...`)
+
+                try {
+                  await supabase.from("activity_log").insert({
+                    type: "swap",
+                    amount: solAmount,
+                    token_symbol: "SOL",
+                    wallet_address: wallet,
+                    tx_signature: tx.signature,
+                    status: "completed",
+                    created_at,
+                  })
+                  processed++
+                } catch (dbError: any) {
+                  console.warn(`[WEBHOOK] Could not insert token swap into activity_log: ${dbError.message}`)
+                  processed++
+                }
+                continue // Skip WSOL wrapping check if we found a token swap
+              }
+            }
+          }
+
+          // Fallback: Look for WSOL wrapping transactions
           if (tx.tokenTransfers) {
             for (const transfer of tx.tokenTransfers) {
               if (transfer.mint === WSOL_MINT && transfer.tokenAmount > 0.01) {
-                console.log(`[WEBHOOK] Processing SWAP: ${transfer.tokenAmount} WSOL in tx ${tx.signature.slice(0, 8)}...`)
+                console.log(`[WEBHOOK] Processing WSOL WRAP: ${transfer.tokenAmount} WSOL in tx ${tx.signature.slice(0, 8)}...`)
 
-                // Insert into activity_log (if table exists)
                 try {
                   await supabase.from("activity_log").insert({
                     type: "swap",
@@ -106,9 +145,8 @@ export async function POST(request: Request) {
                   })
                   processed++
                 } catch (dbError: any) {
-                  // Table might not exist yet - that's okay, we'll still log it
                   console.warn(`[WEBHOOK] Could not insert swap into activity_log: ${dbError.message}`)
-                  processed++ // Still count as processed
+                  processed++
                 }
                 break
               }
