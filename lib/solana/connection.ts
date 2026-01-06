@@ -45,4 +45,4 @@ export const HELIUS_API_KEY = (() => {
 })()
 
 // Thresholds
-export const CLAIM_THRESHOLD_SOL = 0 // Disabled - claim any amount > 0
+export const CLAIM_THRESHOLD_SOL = 0.1 // Minimum SOL required to trigger buyback
