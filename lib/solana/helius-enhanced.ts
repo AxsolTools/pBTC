@@ -78,8 +78,8 @@ export async function getEnhancedTransactionsForAddress(
 }
 
 /**
- * Fetch enhanced transactions for a token mint
- * Simple: Query the mint address directly - Helius tracks all transactions involving the mint
+ * Fetch enhanced transactions for a token mint using Helius getTransactionsForAddress RPC method
+ * This is a Helius-exclusive method available with Developer plan
  */
 export async function getEnhancedTransactionsForTokenMint(
   tokenMint: string,
@@ -91,14 +91,27 @@ export async function getEnhancedTransactionsForTokenMint(
   }
 
   try {
-    // Query transactions for the mint address directly
-    const response = await fetch(
-      `https://api.helius.xyz/v0/addresses/${tokenMint}/transactions?api-key=${HELIUS_API_KEY}`,
-      {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-      }
-    )
+    // Use Helius getTransactionsForAddress RPC method
+    const response = await fetch(`https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "get-token-txs",
+        method: "getTransactionsForAddress",
+        params: [
+          tokenMint, // The token mint address
+          {
+            transactionDetails: "full",
+            sortOrder: "desc", // Newest first
+            limit: Math.min(limit, 100), // Max 100 for full transactions
+            filters: {
+              status: "succeeded", // Only successful transactions
+            },
+          },
+        ],
+      }),
+    })
 
     if (!response.ok) {
       const errorText = await response.text()
@@ -106,29 +119,81 @@ export async function getEnhancedTransactionsForTokenMint(
       return []
     }
 
-    const data: HeliusEnhancedResponse = await response.json()
+    const data = await response.json()
 
-    if (!data.transactions || data.transactions.length === 0) {
+    if (data.error) {
+      console.error(`[HELIUS] RPC error: ${data.error.message}`)
       return []
     }
 
-    // Filter for SWAP transactions only
-    const swapTransactions = data.transactions.filter((tx) => {
-      const isSwap = tx.type === "SWAP" || 
-                    tx.description?.toLowerCase().includes("swap") ||
-                    (tx.tokenTransfers && tx.tokenTransfers.some((t) => 
-                      t.mint === tokenMint && 
-                      tx.tokenTransfers.some((t2) => t2.mint === "So11111111111111111111111111111111111111112")
-                    ))
-      return isSwap
-    })
+    const transactions = data.result?.data || []
 
-    // Sort by timestamp (newest first) and limit
-    swapTransactions.sort((a, b) => b.timestamp - a.timestamp)
-    const limited = swapTransactions.slice(0, limit)
+    if (transactions.length === 0) {
+      return []
+    }
 
-    console.log(`[HELIUS] Found ${limited.length} token swaps for mint ${tokenMint.slice(0, 8)}...`)
-    return limited
+    // Convert to HeliusEnhancedTransaction format and filter for swaps
+    const swapTransactions: HeliusEnhancedTransaction[] = []
+
+    for (const tx of transactions) {
+      if (!tx.transaction || !tx.meta) continue
+
+      const signature = tx.transaction.signatures[0]
+      const blockTime = tx.blockTime || Math.floor(Date.now() / 1000)
+
+      // Check postTokenBalances for our token mint
+      const postBalances = tx.meta.postTokenBalances || []
+      const preBalances = tx.meta.preTokenBalances || []
+      
+      const hasTokenMint = postBalances.some((b: any) => b.mint === tokenMint)
+      const hasWSOL = postBalances.some((b: any) => b.mint === "So11111111111111111111111111111111111111112")
+
+      // If transaction involves both our token and WSOL, it's likely a swap
+      if (hasTokenMint && hasWSOL) {
+        // Calculate token transfer amounts
+        const tokenTransfers: any[] = []
+        
+        for (const postBalance of postBalances) {
+          if (postBalance.mint === tokenMint || postBalance.mint === "So11111111111111111111111111111111111111112") {
+            const preBalance = preBalances.find((b: any) => 
+              b.accountIndex === postBalance.accountIndex && b.mint === postBalance.mint
+            )
+            
+            const preAmount = preBalance ? parseFloat(preBalance.uiTokenAmount?.uiAmountString || "0") : 0
+            const postAmount = parseFloat(postBalance.uiTokenAmount?.uiAmountString || "0")
+            const amount = Math.abs(postAmount - preAmount)
+
+            if (amount > 0) {
+              tokenTransfers.push({
+                mint: postBalance.mint,
+                tokenAmount: amount,
+                fromUserAccount: preBalance?.owner || "",
+                toUserAccount: postBalance.owner || "",
+              })
+            }
+          }
+        }
+
+        if (tokenTransfers.length > 0) {
+          swapTransactions.push({
+            signature,
+            type: "SWAP",
+            description: "Token swap",
+            source: "unknown",
+            fee: tx.meta.fee || 0,
+            feePayer: tx.transaction.message.accountKeys[0] || "",
+            slot: tx.slot,
+            timestamp: blockTime,
+            tokenTransfers,
+            nativeTransfers: [],
+            instructions: [],
+          })
+        }
+      }
+    }
+
+    console.log(`[HELIUS] Found ${swapTransactions.length} token swaps for mint ${tokenMint.slice(0, 8)}...`)
+    return swapTransactions.slice(0, limit)
   } catch (error) {
     console.error("[HELIUS] Error fetching enhanced transactions for token mint:", error)
     return []
