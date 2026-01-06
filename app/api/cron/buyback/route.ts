@@ -140,14 +140,21 @@ export async function POST(request: Request) {
     })
 
     // Update buyback with WSOL amount (using wbtc_amount column for backward compatibility)
+    const completedAt = new Date().toISOString()
     await supabase
       .from("buybacks")
       .update({
         wbtc_amount: swapResult.outputAmount, // Stored in wbtc_amount column but represents WSOL
         status: "completed",
-        completed_at: new Date().toISOString(),
+        completed_at: completedAt,
       })
       .eq("id", buyback?.id)
+
+    // Update countdown start time to this buyback completion time for global synchronization
+    await supabase.from("system_config").upsert({
+      key: "countdown_start_time",
+      value: completedAt,
+    })
 
     // Step 4: Get top 25 holders
     const holders = await getTopHolders()

@@ -30,8 +30,7 @@ export async function GET() {
       const calculatedNext = lastCompletedTime + CYCLE_DURATION
       const now = Date.now()
       
-      // If the calculated next time is in the past, calculate from the last buyback
-      // by finding the next 20-minute interval
+      // If the calculated next time is in the past, find the next 20-minute interval
       if (calculatedNext < now) {
         const cyclesSinceLast = Math.floor((now - lastCompletedTime) / CYCLE_DURATION) + 1
         nextBuybackTime = new Date(lastCompletedTime + (cyclesSinceLast * CYCLE_DURATION)).toISOString()
@@ -39,13 +38,28 @@ export async function GET() {
         nextBuybackTime = new Date(calculatedNext).toISOString()
       }
     } else {
-      // No buybacks yet - use a fixed schedule starting from a reference time
-      // This ensures the countdown is global and doesn't reset on refresh
-      // Use a fixed reference: January 1, 2024 00:00:00 UTC (or any fixed date)
-      const REFERENCE_TIME = new Date("2024-01-01T00:00:00Z").getTime()
-      const now = Date.now()
-      const cyclesSinceReference = Math.floor((now - REFERENCE_TIME) / CYCLE_DURATION) + 1
-      nextBuybackTime = new Date(REFERENCE_TIME + (cyclesSinceReference * CYCLE_DURATION)).toISOString()
+      // No buybacks yet - check if we have a countdown start time in system_config
+      const { data: countdownConfig } = await supabase
+        .from("system_config")
+        .select("value")
+        .eq("key", "countdown_start_time")
+        .single()
+
+      if (countdownConfig?.value) {
+        // Use stored countdown start time
+        const startTime = new Date(countdownConfig.value).getTime()
+        const now = Date.now()
+        const cyclesSinceStart = Math.floor((now - startTime) / CYCLE_DURATION) + 1
+        nextBuybackTime = new Date(startTime + (cyclesSinceStart * CYCLE_DURATION)).toISOString()
+      } else {
+        // First time - store current time as countdown start and set next buyback to 20 minutes from now
+        const startTime = new Date().toISOString()
+        await supabase.from("system_config").upsert({
+          key: "countdown_start_time",
+          value: startTime,
+        })
+        nextBuybackTime = new Date(Date.now() + CYCLE_DURATION).toISOString()
+      }
     }
 
     return NextResponse.json({
