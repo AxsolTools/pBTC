@@ -4,48 +4,46 @@ import { getTopHolders } from "@/lib/solana/holders"
 
 export async function GET() {
   try {
-    const supabase = getAdminClient()
-
-    // Try to get holders from database first
-    const { data, error } = await supabase.from("holders").select("*").order("rank", { ascending: true }).limit(25)
-
-    // If table doesn't exist or is empty, fetch from chain
-    if (error || !data || data.length === 0) {
-      console.log("[HOLDERS] Table empty or doesn't exist, fetching from chain...")
-      const chainHolders = await getTopHolders()
-      
-      // Format to match database structure
-      const formattedHolders = chainHolders.map((h) => ({
-        id: `chain-${h.rank}`,
-        wallet_address: h.wallet,
-        pbtc_balance: h.balance,
-        rank: h.rank,
-        last_reward_amount: null,
-        last_reward_at: null,
-        updated_at: new Date().toISOString(),
-      }))
-
-      return NextResponse.json({ holders: formattedHolders })
-    }
-
-    return NextResponse.json({ holders: data })
-  } catch (error) {
-    console.error("[HOLDERS] Error:", error)
-    // Fallback: try to fetch from chain
+    // Always fetch holders from on-chain for real-time accuracy
+    console.log("[HOLDERS] Fetching top 25 holders from on-chain...")
+    const chainHolders = await getTopHolders()
+    
+    // Get last reward info from database if available (for display purposes)
+    let rewardData: Record<string, { last_reward_amount: number | null; last_reward_at: string | null }> = {}
+    
     try {
-      const chainHolders = await getTopHolders()
-      const formattedHolders = chainHolders.map((h) => ({
-        id: `chain-${h.rank}`,
-        wallet_address: h.wallet,
-        pbtc_balance: h.balance,
-        rank: h.rank,
-        last_reward_amount: null,
-        last_reward_at: null,
-        updated_at: new Date().toISOString(),
-      }))
-      return NextResponse.json({ holders: formattedHolders })
-    } catch (chainError) {
-      return NextResponse.json({ holders: [] })
+      const supabase = getAdminClient()
+      const { data: dbHolders } = await supabase
+        .from("holders")
+        .select("wallet_address, last_reward_amount, last_reward_at")
+      
+      if (dbHolders) {
+        dbHolders.forEach((h: any) => {
+          rewardData[h.wallet_address] = {
+            last_reward_amount: h.last_reward_amount,
+            last_reward_at: h.last_reward_at,
+          }
+        })
+      }
+    } catch (dbError) {
+      // Database table doesn't exist or error - that's okay, we'll just use chain data
+      console.log("[HOLDERS] Could not fetch reward data from database, using chain data only")
     }
+    
+    // Format to match expected structure, merging with reward data from DB
+    const formattedHolders = chainHolders.map((h) => ({
+      id: `chain-${h.rank}`,
+      wallet_address: h.wallet,
+      pbtc_balance: h.balance,
+      rank: h.rank,
+      last_reward_amount: rewardData[h.wallet]?.last_reward_amount || null,
+      last_reward_at: rewardData[h.wallet]?.last_reward_at || null,
+      updated_at: new Date().toISOString(),
+    }))
+
+    return NextResponse.json({ holders: formattedHolders })
+  } catch (error) {
+    console.error("[HOLDERS] Error fetching from chain:", error)
+    return NextResponse.json({ holders: [] })
   }
 }
