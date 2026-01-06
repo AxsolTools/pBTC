@@ -18,39 +18,57 @@ async function getDevWalletKeypair(): Promise<Keypair> {
   const envPrivateKey = process.env.DEV_WALLET_PRIVATE_KEY
   if (envPrivateKey) {
     console.log("[CRON] Using private key from environment variable")
+    console.log(`[CRON] Key format: ${envPrivateKey.startsWith("v1:") ? "ENCRYPTED" : "PLAINTEXT"} (length: ${envPrivateKey.length})`)
     
     // Check if the key is encrypted (starts with "v1:" based on encryption format)
     if (envPrivateKey.startsWith("v1:")) {
       console.log("[CRON] Detected encrypted private key, decrypting...")
-      // Get service salt from Supabase to decrypt
-      const supabase = getAdminClient()
-      const { data: saltConfig, error: saltError } = await supabase
-        .from("system_config")
-        .select("value")
-        .eq("key", "service_salt")
-        .single()
+      try {
+        // Get service salt from Supabase to decrypt
+        const supabase = getAdminClient()
+        const { data: saltConfig, error: saltError } = await supabase
+          .from("system_config")
+          .select("value")
+          .eq("key", "service_salt")
+          .single()
 
-      if (saltError || !saltConfig?.value) {
-        throw new Error("Encrypted DEV_WALLET_PRIVATE_KEY requires service_salt in Supabase. Please configure service_salt in system_config table.")
+        if (saltError || !saltConfig?.value) {
+          console.error(`[CRON] Salt error: ${saltError?.message || "No salt found"}`)
+          throw new Error("Encrypted DEV_WALLET_PRIVATE_KEY requires service_salt in Supabase. Please configure service_salt in system_config table.")
+        }
+
+        console.log("[CRON] Salt found, decrypting private key...")
+        // Decrypt the encrypted private key
+        const privateKey = decryptPrivateKey(envPrivateKey, "pbtc-dev-wallet", saltConfig.value)
+        console.log(`[CRON] Decryption successful, key length: ${privateKey.length}`)
+        const keypair = Keypair.fromSecretKey(bs58.decode(privateKey))
+        console.log(`[CRON] Keypair created successfully: ${keypair.publicKey.toBase58()}`)
+        return keypair
+      } catch (error) {
+        console.error("[CRON] Decryption error:", error)
+        throw new Error(`Failed to decrypt private key: ${error instanceof Error ? error.message : String(error)}`)
       }
-
-      // Decrypt the encrypted private key
-      const privateKey = decryptPrivateKey(envPrivateKey, "pbtc-dev-wallet", saltConfig.value)
-      return Keypair.fromSecretKey(bs58.decode(privateKey))
     }
     
     // Try plaintext formats (base58 or JSON array)
     try {
+      console.log("[CRON] Trying base58 format...")
       // Try base58 format first
-      return Keypair.fromSecretKey(bs58.decode(envPrivateKey))
-    } catch {
+      const keypair = Keypair.fromSecretKey(bs58.decode(envPrivateKey))
+      console.log(`[CRON] Keypair created from base58: ${keypair.publicKey.toBase58()}`)
+      return keypair
+    } catch (base58Error) {
+      console.log("[CRON] Base58 failed, trying JSON array format...")
       // Try JSON array format
       try {
         const parsed = JSON.parse(envPrivateKey)
         if (Array.isArray(parsed)) {
-          return Keypair.fromSecretKey(Uint8Array.from(parsed))
+          const keypair = Keypair.fromSecretKey(Uint8Array.from(parsed))
+          console.log(`[CRON] Keypair created from JSON array: ${keypair.publicKey.toBase58()}`)
+          return keypair
         }
-      } catch {
+      } catch (jsonError) {
+        console.error("[CRON] JSON parse error:", jsonError)
         throw new Error("Invalid DEV_WALLET_PRIVATE_KEY format. Use base58, JSON array, or encrypted format (v1:...).")
       }
     }
@@ -100,9 +118,13 @@ export async function POST(request: Request) {
     console.log(`[CRON] Using wallet: ${keypair.publicKey.toBase58()}`)
 
     // Step 1: Check vault balance
-    const { balance } = await getCreatorVaultBalance(keypair.publicKey)
+    console.log(`[CRON] Checking vault balance for wallet: ${keypair.publicKey.toBase58()}`)
+    const { balance, vaultAddress } = await getCreatorVaultBalance(keypair.publicKey)
+    console.log(`[CRON] Vault balance: ${balance} SOL (threshold: ${CLAIM_THRESHOLD_SOL} SOL)`)
+    console.log(`[CRON] Vault address: ${vaultAddress}`)
 
     if (balance < CLAIM_THRESHOLD_SOL) {
+      console.log(`[CRON] Balance ${balance} SOL below threshold ${CLAIM_THRESHOLD_SOL} SOL, skipping buyback`)
       // Log activity but skip this cycle
       await supabase.from("activity_log").insert({
         type: "buyback",
@@ -115,11 +137,21 @@ export async function POST(request: Request) {
         success: true,
         message: `Balance ${balance} SOL below threshold ${CLAIM_THRESHOLD_SOL} SOL`,
         skipped: true,
+        balance,
+        threshold: CLAIM_THRESHOLD_SOL,
       })
     }
 
     // Step 2: Claim rewards
+    console.log(`[CRON] Claiming rewards for token mint: ${PBTC_TOKEN_MINT}`)
     const claimResult = await claimCreatorRewards(keypair, PBTC_TOKEN_MINT)
+    console.log(`[CRON] Claim result: ${claimResult.success ? "SUCCESS" : "FAILED"}`)
+    if (claimResult.success) {
+      console.log(`[CRON] Claimed amount: ${claimResult.amount} SOL`)
+      console.log(`[CRON] Transaction signature: ${claimResult.txSignature}`)
+    } else {
+      console.error(`[CRON] Claim error: ${claimResult.error}`)
+    }
 
     if (!claimResult.success) {
       return NextResponse.json({ error: claimResult.error }, { status: 500 })
@@ -145,7 +177,15 @@ export async function POST(request: Request) {
     })
 
     // Step 3: Wrap SOL to WSOL
+    console.log(`[CRON] Swapping ${claimResult.amount} SOL to WSOL...`)
     const swapResult = await swapSolToWsol(keypair, claimResult.amount!)
+    console.log(`[CRON] Swap result: ${swapResult.success ? "SUCCESS" : "FAILED"}`)
+    if (swapResult.success) {
+      console.log(`[CRON] Swapped to ${swapResult.outputAmount} WSOL`)
+      console.log(`[CRON] Swap transaction signature: ${swapResult.txSignature}`)
+    } else {
+      console.error(`[CRON] Swap error: ${swapResult.error}`)
+    }
 
     if (!swapResult.success) {
       await supabase.from("buybacks").update({ status: "failed" }).eq("id", buyback?.id)
@@ -201,7 +241,9 @@ export async function POST(request: Request) {
     )
 
     // Step 5: Distribute WSOL to holders
+    console.log(`[CRON] Distributing ${swapResult.outputAmount} WSOL to ${holders.length} holders...`)
     const distributions = await distributeToHolders(keypair, swapResult.outputAmount!, holders)
+    console.log(`[CRON] Distribution complete: ${distributions.filter(d => d.success).length}/${distributions.length} successful`)
 
     // Log distributions
     for (const dist of distributions) {
