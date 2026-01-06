@@ -78,8 +78,8 @@ export async function getEnhancedTransactionsForAddress(
 }
 
 /**
- * Fetch enhanced transactions for a token mint by querying Jupiter aggregator
- * Jupiter is the most common DEX for token swaps on Solana
+ * Fetch enhanced transactions for a token mint
+ * Simple: Query the mint address directly - Helius tracks all transactions involving the mint
  */
 export async function getEnhancedTransactionsForTokenMint(
   tokenMint: string,
@@ -91,17 +91,12 @@ export async function getEnhancedTransactionsForTokenMint(
   }
 
   try {
-    // Query Jupiter V6 aggregator (most common for token swaps)
-    const JUPITER_V6 = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"
-    
-    // Helius API doesn't accept limit as query param, need to use request body or just get default amount
+    // Query transactions for the mint address directly
     const response = await fetch(
-      `https://api.helius.xyz/v0/addresses/${JUPITER_V6}/transactions?api-key=${HELIUS_API_KEY}`,
+      `https://api.helius.xyz/v0/addresses/${tokenMint}/transactions?api-key=${HELIUS_API_KEY}`,
       {
         method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
       }
     )
 
@@ -114,23 +109,18 @@ export async function getEnhancedTransactionsForTokenMint(
     const data: HeliusEnhancedResponse = await response.json()
 
     if (!data.transactions || data.transactions.length === 0) {
-      console.warn("[HELIUS] No transactions found")
       return []
     }
 
-    // Filter for transactions involving our token mint that are swaps
+    // Filter for SWAP transactions only
     const swapTransactions = data.transactions.filter((tx) => {
-      // Check if transaction involves our token mint
-      const involvesToken = tx.tokenTransfers?.some(
-        (transfer) => transfer.mint === tokenMint
-      )
-      
-      // Check if it's a swap
       const isSwap = tx.type === "SWAP" || 
                     tx.description?.toLowerCase().includes("swap") ||
-                    tx.instructions?.some((ix) => ix.type === "SWAP" || ix.programName?.toLowerCase().includes("jupiter"))
-      
-      return involvesToken && isSwap
+                    (tx.tokenTransfers && tx.tokenTransfers.some((t) => 
+                      t.mint === tokenMint && 
+                      tx.tokenTransfers.some((t2) => t2.mint === "So11111111111111111111111111111111111111112")
+                    ))
+      return isSwap
     })
 
     // Sort by timestamp (newest first) and limit
