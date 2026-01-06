@@ -43,15 +43,6 @@ export function Footer() {
             >
               Twitter
             </a>
-
-            <a
-              href="https://t.me"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-muted hover:text-foreground transition-colors"
-            >
-              Telegram
-            </a>
           </div>
         </div>
 
