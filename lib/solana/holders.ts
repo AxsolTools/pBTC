@@ -23,8 +23,13 @@ export async function getTopHolders(): Promise<TokenHolder[]> {
 
   if (!heliusApiKey) {
     console.error("[HELIUS] API key not configured")
+    console.error(`[HELIUS] Environment check - HELIUS_API_KEY exists: ${!!process.env.HELIUS_API_KEY}`)
+    console.error(`[HELIUS] Environment check - HELIUS_API_KEY length: ${process.env.HELIUS_API_KEY?.length || 0}`)
+    console.error(`[HELIUS] All HELIUS env vars:`, Object.keys(process.env).filter(k => k.includes('HELIUS')))
     return []
   }
+
+  console.log(`[HELIUS] API key found (length: ${heliusApiKey.length})`)
 
   if (!PBTC_TOKEN_MINT) {
     console.error("[HELIUS] PBTC_TOKEN_MINT not configured. Check PBTC_TOKEN_MINT environment variable.")
