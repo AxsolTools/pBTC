@@ -1,4 +1,5 @@
 import { PublicKey } from "@solana/web3.js"
+import { HELIUS_API_KEY } from "./connection"
 
 interface HeliusEnhancedTransaction {
   description: string
@@ -42,9 +43,6 @@ export async function getEnhancedTransactionsForAddress(
   address: string,
   limit: number = 50,
 ): Promise<HeliusEnhancedTransaction[]> {
-  // Import HELIUS_API_KEY from connection (read at module level)
-  const { HELIUS_API_KEY } = await import("./connection")
-
   if (!HELIUS_API_KEY) {
     console.error("[HELIUS] Enhanced API key not configured")
     return []

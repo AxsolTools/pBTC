@@ -7,9 +7,9 @@ function getHeliusRpcUrl(): string {
     return process.env.HELIUS_RPC_URL
   }
   
-  // Construct from API key
-  if (process.env.HELIUS_API_KEY) {
-    return `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`
+  // Use the exported HELIUS_API_KEY constant (read at module level)
+  if (HELIUS_API_KEY) {
+    return `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`
   }
   
   // Fallback to public mainnet (rate limited)
@@ -37,7 +37,12 @@ export const PBTC_TOKEN_MINT = process.env.PBTC_TOKEN_MINT || ""
 export const WSOL_MINT = "So11111111111111111111111111111111111111112" // Wrapped SOL (9 decimals)
 
 // Helius API Key (read at module level like PBTC_TOKEN_MINT)
-export const HELIUS_API_KEY = process.env.HELIUS_API_KEY || ""
+// Access process.env at runtime, not at build time
+export const HELIUS_API_KEY = (() => {
+  // In Next.js API routes, process.env is available at runtime
+  // This function ensures it's evaluated when the module loads at runtime
+  return process.env.HELIUS_API_KEY || ""
+})()
 
 // Thresholds
 export const CLAIM_THRESHOLD_SOL = 0 // Disabled - claim any amount > 0
