@@ -105,13 +105,15 @@ export async function buyPbtcWithSol(keypair: Keypair, solAmount: number, retrie
       const tx = VersionedTransaction.deserialize(txBytes)
       tx.sign([keypair])
 
-      // Send to RPC
+      // Send to RPC - skip simulation to avoid false failures
+      // The transaction from PumpPortal already has slippage bounds encoded
+      // Simulation can fail due to price movement, but actual execution may succeed
       const signature = await connection.sendTransaction(tx, {
-        skipPreflight: false,
+        skipPreflight: true,
         maxRetries: 3,
       })
 
-      // Confirm transaction
+      // Confirm transaction - this will catch actual on-chain failures
       const confirmation = await connection.confirmTransaction(signature, "confirmed")
 
       if (confirmation.value.err) {
