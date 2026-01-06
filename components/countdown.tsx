@@ -27,7 +27,23 @@ export function Countdown() {
 
   // Calculate time left based on server data
   useEffect(() => {
-    if (!data?.nextBuybackTime) return
+    if (!data?.nextBuybackTime) {
+      // If no data yet, show loading state but don't block
+      if (error) {
+        console.error("[COUNTDOWN] Error fetching countdown:", error)
+        // On error, start a default countdown from now
+        const defaultTime = Date.now() + CYCLE_DURATION * 1000
+        const calculateDefault = () => {
+          const remaining = Math.max(0, Math.floor((defaultTime - Date.now()) / 1000))
+          setTimeLeft(remaining)
+          setIsUrgent(remaining < 60)
+        }
+        calculateDefault()
+        const interval = setInterval(calculateDefault, 1000)
+        return () => clearInterval(interval)
+      }
+      return
+    }
 
     const calculateTimeLeft = () => {
       const now = new Date().getTime()
@@ -36,6 +52,11 @@ export function Countdown() {
 
       setTimeLeft(remaining)
       setIsUrgent(remaining < 60)
+      
+      // If countdown reached 0, it will reset on next API call (every 10 seconds)
+      if (remaining === 0) {
+        console.log("[COUNTDOWN] Countdown reached zero, waiting for server to reset...")
+      }
     }
 
     calculateTimeLeft()
@@ -43,7 +64,7 @@ export function Countdown() {
     // Update every second
     const interval = setInterval(calculateTimeLeft, 1000)
     return () => clearInterval(interval)
-  }, [data?.nextBuybackTime])
+  }, [data?.nextBuybackTime, error])
 
   const minutes = Math.floor(timeLeft / 60)
   const seconds = timeLeft % 60
