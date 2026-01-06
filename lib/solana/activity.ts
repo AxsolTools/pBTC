@@ -64,11 +64,13 @@ export async function getOnChainActivities(limit: number = 50): Promise<OnChainA
     const wsolMint = new PublicKey(WSOL_MINT)
     const devWalletPubkey = getDevWalletPublicKey()
 
-    // Fetch token swaps (buys/sells) for the mint by querying DEX programs
+    // Fetch token swaps (buys/sells) for the mint using Helius getTransactionsForAddress
     try {
       console.log(`[ACTIVITY] Fetching token swaps for mint: ${PBTC_TOKEN_MINT.slice(0, 8)}...`)
       const { getEnhancedTransactionsForTokenMint, detectTokenSwapFromEnhanced } = await import("./helius-enhanced")
       const tokenSwaps = await getEnhancedTransactionsForTokenMint(PBTC_TOKEN_MINT, limit)
+      
+      console.log(`[ACTIVITY] Retrieved ${tokenSwaps.length} transactions from RPC`)
       
       for (const tx of tokenSwaps) {
         const blockTime = tx.timestamp * 1000
@@ -87,7 +89,7 @@ export async function getOnChainActivities(limit: number = 50): Promise<OnChainA
         }
       }
       
-      console.log(`[ACTIVITY] Processed ${tokenSwaps.length} token transactions`)
+      console.log(`[ACTIVITY] Processed ${tokenSwaps.length} token transactions, found ${activities.filter(a => a.type === 'swap').length} swaps`)
     } catch (tokenErr) {
       console.warn("[ACTIVITY] Could not fetch token swaps, continuing with other activities:", tokenErr)
     }
