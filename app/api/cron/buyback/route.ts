@@ -4,7 +4,7 @@ import bs58 from "bs58"
 import { getAdminClient } from "@/lib/supabase/admin"
 import { decryptPrivateKey } from "@/lib/crypto/encryption"
 import { getCreatorVaultBalance, claimCreatorRewards } from "@/lib/solana/claim-rewards"
-import { swapSolToWsol } from "@/lib/solana/swap"
+import { buyPbtcWithSol, swapSolToWsol } from "@/lib/solana/swap"
 import { distributeToHolders } from "@/lib/solana/distribute"
 import { getTopHolders } from "@/lib/solana/holders"
 import { PBTC_TOKEN_MINT, getConnection } from "@/lib/solana/connection"
@@ -208,9 +208,50 @@ export async function POST(request: Request) {
       status: claimResult.success ? "completed" : "using_wallet_balance",
     })
 
-    // Step 3: Wrap SOL to WSOL
-    console.log(`[CRON] Swapping ${solAmount} SOL to WSOL...`)
-    const swapResult = await swapSolToWsol(keypair, solAmount)
+    // Step 3: Buy pBTC tokens with SOL (actual buyback)
+    // Use 90% of SOL for buying pBTC, keep 10% for distribution (plus 0.01 for fees)
+    const buybackPercentage = 0.9
+    const buybackAmount = Math.max(0, solAmount * buybackPercentage)
+    const reservedForDistribution = solAmount - buybackAmount - 0.01
+    console.log(`[CRON] Buying pBTC with ${buybackAmount} SOL (${(buybackPercentage * 100).toFixed(0)}% of ${solAmount} SOL)...`)
+    const buyResult = await buyPbtcWithSol(keypair, buybackAmount)
+    console.log(`[CRON] Buy result: ${buyResult.success ? "SUCCESS" : "FAILED"}`)
+    if (buyResult.success) {
+      console.log(`[CRON] Bought pBTC tokens, spent ${buyResult.solSpent} SOL`)
+      console.log(`[CRON] Buy transaction signature: ${buyResult.txSignature}`)
+    } else {
+      console.error(`[CRON] Buy error: ${buyResult.error}`)
+      // Continue anyway - we'll try to swap what we have
+    }
+
+    // Log buyback activity
+    if (buyResult.success) {
+      await supabase.from("activity_log").insert({
+        type: "buyback",
+        amount: buyResult.solSpent,
+        token_symbol: "pBTC",
+        tx_signature: buyResult.txSignature,
+        status: "completed",
+      })
+    }
+
+    // Step 4: Wrap remaining SOL to WSOL for distribution
+    // Use reserved amount for distribution (10% of original + any unspent from buyback)
+    const actualSpent = buyResult.success ? buyResult.solSpent! : 0
+    const remainingSol = Math.max(0, solAmount - actualSpent - 0.01)
+    
+    if (remainingSol <= 0.001) { // Minimum 0.001 SOL needed
+      console.log(`[CRON] No remaining SOL to swap to WSOL after buyback (remaining: ${remainingSol})`)
+      return NextResponse.json({
+        success: true,
+        message: "Buyback complete, no remaining SOL for distribution",
+        buyback: buyback?.id,
+        buyResult: buyResult.success ? { txSignature: buyResult.txSignature, solSpent: buyResult.solSpent } : null,
+      })
+    }
+
+    console.log(`[CRON] Swapping ${remainingSol} SOL to WSOL for distribution...`)
+    const swapResult = await swapSolToWsol(keypair, remainingSol)
     console.log(`[CRON] Swap result: ${swapResult.success ? "SUCCESS" : "FAILED"}`)
     if (swapResult.success) {
       console.log(`[CRON] Swapped to ${swapResult.outputAmount} WSOL`)
@@ -274,7 +315,7 @@ export async function POST(request: Request) {
       })),
     )
 
-    // Step 5: Distribute WSOL to holders
+    // Step 6: Distribute WSOL to holders
     console.log(`[CRON] Distributing ${swapResult.outputAmount} WSOL to ${holders.length} holders...`)
     const distributions = await distributeToHolders(keypair, swapResult.outputAmount!, holders)
     const successfulDistributions = distributions.filter(d => d.success)
