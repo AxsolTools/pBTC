@@ -46,11 +46,27 @@ interface HeliusWebhookPayload {
 /**
  * Helius Webhook Endpoint
  * Receives real-time transaction notifications from Helius
- * Webhook URL: https://propellabs.app/api/webhooks/helius
+ * Webhook URL: https://physicalbitcoin.fun/api/webhooks/helius
  * Configured for: SWAP, TRANSFER events on account B7tP6jNAcSmnvcuKsTFdvTAJHMkEQaXse8TMxoq2pump
+ * Authentication: Bearer token required (set in HELIUS_WEBHOOK_AUTH_TOKEN env var)
  */
 export async function POST(request: Request) {
   try {
+    // Verify Bearer token authentication
+    const authHeader = request.headers.get("authorization")
+    const expectedToken = process.env.HELIUS_WEBHOOK_AUTH_TOKEN
+
+    if (expectedToken) {
+      const expectedBearer = `Bearer ${expectedToken}`
+      if (authHeader !== expectedBearer) {
+        console.warn(`[WEBHOOK] Authentication failed. Expected: ${expectedBearer.slice(0, 20)}..., Got: ${authHeader?.slice(0, 20) || "none"}...`)
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      }
+      console.log("[WEBHOOK] Authentication successful")
+    } else {
+      console.warn("[WEBHOOK] HELIUS_WEBHOOK_AUTH_TOKEN not configured, accepting all requests (not recommended for production)")
+    }
+
     const payload: HeliusWebhookPayload[] = await request.json()
 
     if (!Array.isArray(payload) || payload.length === 0) {
