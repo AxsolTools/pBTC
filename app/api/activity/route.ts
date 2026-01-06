@@ -25,10 +25,20 @@ export async function GET(request: Request) {
         dbActivities = data
         console.log(`[ACTIVITY] Found ${dbActivities.length} real-time activities from webhooks (database)`)
       } else if (error) {
-        console.warn(`[ACTIVITY] Database query error: ${error.message}`)
+        // Table might not exist - that's okay, we'll use RPC fallback
+        if (error.message?.includes("table") || error.message?.includes("schema cache")) {
+          console.log(`[ACTIVITY] activity_log table not found - using RPC fallback only`)
+        } else {
+          console.warn(`[ACTIVITY] Database query error: ${error.message}`)
+        }
       }
-    } catch (dbError) {
-      console.warn("[ACTIVITY] Could not fetch from database:", dbError)
+    } catch (dbError: any) {
+      // Table doesn't exist - that's fine, continue with RPC
+      if (dbError?.message?.includes("table") || dbError?.message?.includes("schema cache")) {
+        console.log(`[ACTIVITY] activity_log table not found - using RPC fallback only`)
+      } else {
+        console.warn("[ACTIVITY] Could not fetch from database:", dbError)
+      }
     }
 
     // Fallback: Fetch historical on-chain activities if database is empty

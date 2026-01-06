@@ -94,8 +94,9 @@ export async function getEnhancedTransactionsForTokenMint(
     // Query Jupiter V6 aggregator (most common for token swaps)
     const JUPITER_V6 = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"
     
+    // Helius API doesn't accept limit as query param, need to use request body or just get default amount
     const response = await fetch(
-      `https://api.helius.xyz/v0/addresses/${JUPITER_V6}/transactions?api-key=${HELIUS_API_KEY}&limit=500`,
+      `https://api.helius.xyz/v0/addresses/${JUPITER_V6}/transactions?api-key=${HELIUS_API_KEY}`,
       {
         method: "GET",
         headers: {
