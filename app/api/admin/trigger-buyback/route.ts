@@ -85,10 +85,13 @@ async function getDevWalletKeypair(): Promise<Keypair> {
 }
 
 export async function POST(request: Request) {
+  console.log("[ADMIN] ========================================")
+  console.log("[ADMIN] 🚀 BUYBACK TRIGGERED MANUALLY")
+  console.log("[ADMIN] ========================================")
   try {
     const supabase = getAdminClient()
     const keypair = await getDevWalletKeypair()
-    console.log(`[ADMIN] Using wallet: ${keypair.publicKey.toBase58()}`)
+    console.log(`[ADMIN] ✅ Using wallet: ${keypair.publicKey.toBase58()}`)
 
     // Step 1: Check vault balance
     const { balance } = await getCreatorVaultBalance(keypair.publicKey)
@@ -103,7 +106,15 @@ export async function POST(request: Request) {
     }
 
     // Step 2: Claim rewards
+    console.log(`[ADMIN] 📥 Step 2: Claiming creator rewards...`)
     const claimResult = await claimCreatorRewards(keypair, PBTC_TOKEN_MINT)
+    
+    if (claimResult.success) {
+      console.log(`[ADMIN] ✅ Claimed ${claimResult.amount} SOL`)
+      console.log(`[ADMIN] 📝 TX: ${claimResult.txSignature}`)
+    } else {
+      console.error(`[ADMIN] ❌ Claim failed: ${claimResult.error}`)
+    }
 
     if (!claimResult.success) {
       return NextResponse.json({ error: claimResult.error }, { status: 500 })
@@ -129,7 +140,15 @@ export async function POST(request: Request) {
     })
 
     // Step 3: Wrap SOL to WSOL
+    console.log(`[ADMIN] 🔄 Step 3: Swapping ${claimResult.amount} SOL to WSOL...`)
     const swapResult = await swapSolToWsol(keypair, claimResult.amount!)
+    
+    if (swapResult.success) {
+      console.log(`[ADMIN] ✅ Swapped to ${swapResult.outputAmount} WSOL`)
+      console.log(`[ADMIN] 📝 TX: ${swapResult.txSignature}`)
+    } else {
+      console.error(`[ADMIN] ❌ Swap failed: ${swapResult.error}`)
+    }
 
     if (!swapResult.success) {
       await supabase.from("buybacks").update({ status: "failed" }).eq("id", buyback?.id)
@@ -184,7 +203,11 @@ export async function POST(request: Request) {
     )
 
     // Step 5: Distribute WSOL to holders
+    console.log(`[ADMIN] 💰 Step 5: Distributing ${swapResult.outputAmount} WSOL to ${holders.length} holders...`)
     const distributions = await distributeToHolders(keypair, swapResult.outputAmount!, holders)
+    
+    const successful = distributions.filter(d => d.success).length
+    console.log(`[ADMIN] ✅ Distributed to ${successful}/${holders.length} holders`)
 
     // Log distributions
     for (const dist of distributions) {
