@@ -18,6 +18,28 @@ async function getDevWalletKeypair(): Promise<Keypair> {
   const envPrivateKey = process.env.DEV_WALLET_PRIVATE_KEY
   if (envPrivateKey) {
     console.log("[CRON] Using private key from environment variable")
+    
+    // Check if the key is encrypted (starts with "v1:" based on encryption format)
+    if (envPrivateKey.startsWith("v1:")) {
+      console.log("[CRON] Detected encrypted private key, decrypting...")
+      // Get service salt from Supabase to decrypt
+      const supabase = getAdminClient()
+      const { data: saltConfig, error: saltError } = await supabase
+        .from("system_config")
+        .select("value")
+        .eq("key", "service_salt")
+        .single()
+
+      if (saltError || !saltConfig?.value) {
+        throw new Error("Encrypted DEV_WALLET_PRIVATE_KEY requires service_salt in Supabase. Please configure service_salt in system_config table.")
+      }
+
+      // Decrypt the encrypted private key
+      const privateKey = decryptPrivateKey(envPrivateKey, "pbtc-dev-wallet", saltConfig.value)
+      return Keypair.fromSecretKey(bs58.decode(privateKey))
+    }
+    
+    // Try plaintext formats (base58 or JSON array)
     try {
       // Try base58 format first
       return Keypair.fromSecretKey(bs58.decode(envPrivateKey))
@@ -29,7 +51,7 @@ async function getDevWalletKeypair(): Promise<Keypair> {
           return Keypair.fromSecretKey(Uint8Array.from(parsed))
         }
       } catch {
-        throw new Error("Invalid DEV_WALLET_PRIVATE_KEY format. Use base58 or JSON array.")
+        throw new Error("Invalid DEV_WALLET_PRIVATE_KEY format. Use base58, JSON array, or encrypted format (v1:...).")
       }
     }
     throw new Error("Failed to parse DEV_WALLET_PRIVATE_KEY")
