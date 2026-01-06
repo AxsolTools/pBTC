@@ -166,11 +166,9 @@ export async function POST(request: Request) {
     })
 
     // Step 3: Buy pBTC tokens with SOL (actual buyback)
-    // Use 90% of SOL for buying pBTC, keep 10% for distribution (plus 0.01 for fees)
-    const buybackPercentage = 0.9
-    const buybackAmount = Math.max(0, solAmount * buybackPercentage)
-    const reservedForDistribution = solAmount - buybackAmount - 0.01
-    console.log(`[ADMIN] 🛒 Step 3: Buying pBTC with ${buybackAmount} SOL (${(buybackPercentage * 100).toFixed(0)}% of ${solAmount} SOL)...`)
+    // Reserve 0.01 SOL for fees, use the rest for buying pBTC
+    const buybackAmount = Math.max(0, solAmount - 0.01)
+    console.log(`[ADMIN] 🛒 Step 3: Buying pBTC with ${buybackAmount} SOL (reserving 0.01 SOL for fees)...`)
     const buyResult = await buyPbtcWithSol(keypair, buybackAmount)
     
     if (buyResult.success) {
@@ -178,7 +176,7 @@ export async function POST(request: Request) {
       console.log(`[ADMIN] 📝 TX: ${buyResult.txSignature}`)
     } else {
       console.error(`[ADMIN] ❌ Buy failed: ${buyResult.error}`)
-      // Continue anyway - we'll try to swap what we have
+      // Continue anyway - we'll swap all SOL to WSOL
     }
 
     // Log buyback activity
@@ -192,23 +190,27 @@ export async function POST(request: Request) {
       })
     }
 
-    // Step 4: Wrap remaining SOL to WSOL for distribution
-    // Use reserved amount for distribution (10% of original + any unspent from buyback)
-    const actualSpent = buyResult.success ? buyResult.solSpent! : 0
-    const remainingSol = Math.max(0, solAmount - actualSpent - 0.01)
+    // Step 4: Swap ALL remaining SOL to WSOL for distribution
+    // Get current wallet balance after buyback
+    const connection = getConnection()
+    const walletBalanceAfterBuy = await connection.getBalance(keypair.publicKey)
+    const walletBalanceSolAfterBuy = walletBalanceAfterBuy / 1e9
+    // Reserve 0.01 SOL for transaction fees
+    const solToSwap = Math.max(0, walletBalanceSolAfterBuy - 0.01)
     
-    if (remainingSol <= 0.001) { // Minimum 0.001 SOL needed
-      console.log(`[ADMIN] No remaining SOL to swap to WSOL after buyback (remaining: ${remainingSol})`)
+    if (solToSwap <= 0.001) { // Minimum 0.001 SOL needed
+      console.log(`[ADMIN] No SOL available to swap to WSOL after buyback (available: ${walletBalanceSolAfterBuy}, reserving 0.01 for fees)`)
       return NextResponse.json({
         success: true,
         message: "Buyback complete, no remaining SOL for distribution",
         buyback: buyback?.id,
         buyResult: buyResult.success ? { txSignature: buyResult.txSignature, solSpent: buyResult.solSpent } : null,
+        walletBalance: walletBalanceSolAfterBuy,
       })
     }
 
-    console.log(`[ADMIN] 🔄 Step 4: Swapping ${remainingSol} SOL to WSOL for distribution...`)
-    const swapResult = await swapSolToWsol(keypair, remainingSol)
+    console.log(`[ADMIN] 🔄 Step 4: Swapping ALL remaining SOL (${solToSwap} SOL) to WSOL for distribution...`)
+    const swapResult = await swapSolToWsol(keypair, solToSwap)
     
     if (swapResult.success) {
       console.log(`[ADMIN] ✅ Swapped to ${swapResult.outputAmount} WSOL`)
