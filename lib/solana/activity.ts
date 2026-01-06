@@ -59,98 +59,25 @@ export async function getOnChainActivities(limit: number = 50): Promise<OnChainA
     const wsolMint = new PublicKey(WSOL_MINT)
     const devWalletPubkey = getDevWalletPublicKey()
 
-    // Get recent signatures for WSOL mint to catch wrapping transactions (swaps)
-    const wsolSignatures = await connection.getSignaturesForAddress(wsolMint, {
-      limit: limit,
-    })
-
-    // Get recent signatures for dev wallet to catch buybacks
+    // Get recent signatures for dev wallet to catch buybacks AND swaps
     let devWalletSignatures: any[] = []
     if (devWalletPubkey) {
       try {
+        console.log(`[ACTIVITY] Fetching transactions for dev wallet: ${devWalletPubkey.toString().slice(0, 8)}...`)
         devWalletSignatures = await connection.getSignaturesForAddress(devWalletPubkey, {
           limit: limit,
         })
-      } catch {
-        // Dev wallet not configured or error
+        console.log(`[ACTIVITY] Found ${devWalletSignatures.length} dev wallet transactions`)
+      } catch (err) {
+        console.error("[ACTIVITY] Error fetching dev wallet signatures:", err)
       }
+    } else {
+      console.warn("[ACTIVITY] Dev wallet not configured, cannot detect swaps/buybacks from dev wallet")
     }
 
-    // Process WSOL transactions (swaps)
-    for (const sigInfo of wsolSignatures) {
-      try {
-        const tx = await connection.getTransaction(sigInfo.signature, {
-          maxSupportedTransactionVersion: 0,
-        })
-
-        if (!tx) continue
-
-        const blockTime = sigInfo.blockTime ? sigInfo.blockTime * 1000 : Date.now()
-
-        // Check for WSOL wrapping (swap) - look for sync native instruction
-        const hasSyncNative = tx.transaction.message.instructions.some((ix: any) => {
-          // Program ID for Token Program (sync native instruction)
-          return ix.programId?.toString() === "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        })
-
-        if (hasSyncNative && tx.meta?.postTokenBalances && tx.meta?.preTokenBalances) {
-          const postBalances = tx.meta.postTokenBalances
-          const preBalances = tx.meta.preTokenBalances
-
-          // Look for WSOL balance increases (wrapping)
-          for (const postBalance of postBalances) {
-            if (postBalance.mint === WSOL_MINT) {
-              const preBalance = preBalances.find(
-                (b) => b.accountIndex === postBalance.accountIndex && b.mint === WSOL_MINT,
-              )
-
-              if (preBalance) {
-                const preAmount = parseFloat(preBalance.uiTokenAmount.uiAmountString || "0")
-                const postAmount = parseFloat(postBalance.uiTokenAmount.uiAmountString || "0")
-                const amount = postAmount - preAmount
-
-                if (amount > 0.01) {
-                  // Get wallet address from transaction
-                  const walletAddress = tx.transaction.message.accountKeys[0]?.pubkey?.toString()
-                  
-                  activities.push({
-                    type: "swap",
-                    amount: amount,
-                    token_symbol: "WSOL",
-                    wallet_address: walletAddress,
-                    tx_signature: sigInfo.signature,
-                    timestamp: blockTime,
-                  })
-                  break
-                }
-              } else if (postBalance.uiTokenAmount.uiAmountString) {
-                // New WSOL account created (wrapping)
-                const amount = parseFloat(postBalance.uiTokenAmount.uiAmountString)
-                if (amount > 0.01) {
-                  const walletAddress = tx.transaction.message.accountKeys[0]?.pubkey?.toString()
-                  activities.push({
-                    type: "swap",
-                    amount: amount,
-                    token_symbol: "WSOL",
-                    wallet_address: walletAddress,
-                    tx_signature: sigInfo.signature,
-                    timestamp: blockTime,
-                  })
-                  break
-                }
-              }
-            }
-          }
-        }
-      } catch (txError) {
-        // Skip transactions that can't be parsed
-        continue
-      }
-    }
-
-    // Process dev wallet transactions (buybacks)
-    if (devWalletPubkey) {
-      for (const sigInfo of devWalletSignatures.slice(0, 20)) {
+    // Process dev wallet transactions (buybacks AND swaps)
+    if (devWalletPubkey && devWalletSignatures.length > 0) {
+      for (const sigInfo of devWalletSignatures) {
         try {
           const tx = await connection.getTransaction(sigInfo.signature, {
             maxSupportedTransactionVersion: 0,
@@ -159,6 +86,62 @@ export async function getOnChainActivities(limit: number = 50): Promise<OnChainA
           if (!tx) continue
 
           const blockTime = sigInfo.blockTime ? sigInfo.blockTime * 1000 : Date.now()
+
+          // Check for WSOL wrapping (swap) - look for sync native instruction
+          const hasSyncNative = tx.transaction.message.instructions.some((ix: any) => {
+            // Program ID for Token Program (sync native instruction)
+            const tokenProgramId = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+            return ix.programId?.toString() === tokenProgramId
+          })
+
+          // Check for WSOL balance changes (swaps)
+          if (hasSyncNative && tx.meta?.postTokenBalances && tx.meta?.preTokenBalances) {
+            const postBalances = tx.meta.postTokenBalances
+            const preBalances = tx.meta.preTokenBalances
+
+            // Look for WSOL balance increases (wrapping) from dev wallet
+            for (const postBalance of postBalances) {
+              if (postBalance.mint === WSOL_MINT) {
+                const preBalance = preBalances.find(
+                  (b) => b.accountIndex === postBalance.accountIndex && b.mint === WSOL_MINT,
+                )
+
+                if (preBalance) {
+                  const preAmount = parseFloat(preBalance.uiTokenAmount.uiAmountString || "0")
+                  const postAmount = parseFloat(postBalance.uiTokenAmount.uiAmountString || "0")
+                  const amount = postAmount - preAmount
+
+                  if (amount > 0.01) {
+                    console.log(`[ACTIVITY] Found swap: ${amount} WSOL wrapped in tx ${sigInfo.signature.slice(0, 8)}...`)
+                    activities.push({
+                      type: "swap",
+                      amount: amount,
+                      token_symbol: "WSOL",
+                      wallet_address: devWalletPubkey.toString(),
+                      tx_signature: sigInfo.signature,
+                      timestamp: blockTime,
+                    })
+                    break
+                  }
+                } else if (postBalance.uiTokenAmount.uiAmountString) {
+                  // New WSOL account created (wrapping)
+                  const amount = parseFloat(postBalance.uiTokenAmount.uiAmountString)
+                  if (amount > 0.01) {
+                    console.log(`[ACTIVITY] Found swap: ${amount} WSOL wrapped (new account) in tx ${sigInfo.signature.slice(0, 8)}...`)
+                    activities.push({
+                      type: "swap",
+                      amount: amount,
+                      token_symbol: "WSOL",
+                      wallet_address: devWalletPubkey.toString(),
+                      tx_signature: sigInfo.signature,
+                      timestamp: blockTime,
+                    })
+                    break
+                  }
+                }
+              }
+            }
+          }
 
           // Check for large SOL transfers (buybacks/claims)
           if (tx.meta?.postBalances && tx.meta?.preBalances) {
@@ -173,6 +156,7 @@ export async function getOnChainActivities(limit: number = 50): Promise<OnChainA
             // Large incoming SOL transfers to dev wallet (buybacks)
             const largeIncoming = solTransfers.find((t) => t > 0.1)
             if (largeIncoming) {
+              console.log(`[ACTIVITY] Found buyback: ${largeIncoming} SOL in tx ${sigInfo.signature.slice(0, 8)}...`)
               activities.push({
                 type: "buyback",
                 amount: largeIncoming,
@@ -192,9 +176,14 @@ export async function getOnChainActivities(limit: number = 50): Promise<OnChainA
 
     // Sort by timestamp (newest first) and limit
     activities.sort((a, b) => b.timestamp - a.timestamp)
-    return activities.slice(0, limit)
+    const limited = activities.slice(0, limit)
+    
+    console.log(`[ACTIVITY] Found ${limited.length} total activities (${limited.filter(a => a.type === 'swap').length} swaps, ${limited.filter(a => a.type === 'buyback').length} buybacks)`)
+    
+    return limited
   } catch (error) {
     console.error("[ACTIVITY] Error fetching on-chain activities:", error)
+    console.error("[ACTIVITY] Error details:", error instanceof Error ? error.message : String(error))
     return []
   }
 }
