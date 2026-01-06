@@ -79,7 +79,62 @@ export async function getEnhancedTransactionsForAddress(
 }
 
 /**
- * Detect swap activity from enhanced transaction
+ * Detect swap activity from enhanced transaction for a specific token mint
+ * Returns SOL amount spent/received in the swap
+ */
+export function detectTokenSwapFromEnhanced(
+  tx: HeliusEnhancedTransaction,
+  tokenMint: string,
+): { amount: number; direction: "buy" | "sell"; wallet: string } | null {
+  const WSOL_MINT = "So11111111111111111111111111111111111111112"
+
+  // Check if this is a SWAP transaction involving our token
+  if (tx.type === "SWAP" || tx.description?.toLowerCase().includes("swap")) {
+    // Look for token transfers involving our token mint
+    if (tx.tokenTransfers && tx.tokenTransfers.length > 0) {
+      const tokenTransfer = tx.tokenTransfers.find((t) => t.mint === tokenMint)
+      const solTransfer = tx.tokenTransfers.find((t) => t.mint === WSOL_MINT) || 
+                         tx.nativeTransfers?.find((t) => t.amount > 0)
+
+      if (tokenTransfer) {
+        // Determine direction: if token is received, it's a buy; if sent, it's a sell
+        const isBuy = tokenTransfer.toUserAccount && tokenTransfer.toUserAccount !== tx.feePayer
+        const direction = isBuy ? "buy" : "sell"
+        
+        // Get SOL amount from WSOL transfer or native transfer
+        let solAmount = 0
+        if (solTransfer) {
+          if ("tokenAmount" in solTransfer) {
+            solAmount = solTransfer.tokenAmount
+          } else if ("amount" in solTransfer) {
+            solAmount = solTransfer.amount
+          }
+        }
+
+        // Also check native transfers for SOL amount
+        if (solAmount === 0 && tx.nativeTransfers && tx.nativeTransfers.length > 0) {
+          const nativeTransfer = tx.nativeTransfers.find((t) => Math.abs(t.amount) > 0.01)
+          if (nativeTransfer) {
+            solAmount = Math.abs(nativeTransfer.amount)
+          }
+        }
+
+        if (solAmount > 0.01) {
+          return {
+            amount: solAmount,
+            direction,
+            wallet: (isBuy ? tokenTransfer.toUserAccount : tokenTransfer.fromUserAccount) || tx.feePayer,
+          }
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+/**
+ * Detect swap activity from enhanced transaction (legacy - for WSOL wrapping)
  */
 export function detectSwapFromEnhanced(tx: HeliusEnhancedTransaction): { amount: number; tokenMint: string } | null {
   // Look for token transfers involving WSOL

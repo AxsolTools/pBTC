@@ -64,6 +64,36 @@ export async function getOnChainActivities(limit: number = 50): Promise<OnChainA
     const wsolMint = new PublicKey(WSOL_MINT)
     const devWalletPubkey = getDevWalletPublicKey()
 
+    // Fetch token swaps (buys/sells) for the mint address
+    try {
+      console.log(`[ACTIVITY] Fetching token swaps for mint: ${PBTC_TOKEN_MINT.slice(0, 8)}...`)
+      const tokenSwaps = await getEnhancedTransactionsForAddress(PBTC_TOKEN_MINT, limit)
+      
+      // Import the new function
+      const { detectTokenSwapFromEnhanced } = await import("./helius-enhanced")
+      
+      for (const tx of tokenSwaps) {
+        const blockTime = tx.timestamp * 1000
+        const swapInfo = detectTokenSwapFromEnhanced(tx, PBTC_TOKEN_MINT)
+        
+        if (swapInfo && swapInfo.amount > 0.01) {
+          console.log(`[ACTIVITY] Found token ${swapInfo.direction}: ${swapInfo.amount} SOL in tx ${tx.signature.slice(0, 8)}...`)
+          activities.push({
+            type: "swap",
+            amount: swapInfo.amount,
+            token_symbol: "SOL",
+            wallet_address: swapInfo.wallet,
+            tx_signature: tx.signature,
+            timestamp: blockTime,
+          })
+        }
+      }
+      
+      console.log(`[ACTIVITY] Processed ${tokenSwaps.length} token transactions`)
+    } catch (tokenErr) {
+      console.warn("[ACTIVITY] Could not fetch token swaps, continuing with other activities:", tokenErr)
+    }
+
     // Use Helius Enhanced Transactions API for better swap/buyback detection
     if (devWalletPubkey) {
       try {
