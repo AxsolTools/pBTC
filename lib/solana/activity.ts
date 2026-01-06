@@ -139,6 +139,30 @@ export async function getOnChainActivities(limit: number = 50): Promise<OnChainA
               timestamp: blockTime,
             })
           }
+
+          // Detect distributions (token transfers from dev wallet to other wallets)
+          if (tx.tokenTransfers && tx.tokenTransfers.length > 0) {
+            for (const transfer of tx.tokenTransfers) {
+              // If dev wallet is sending tokens (WSOL) to other wallets, it's a distribution
+              if (
+                transfer.fromUserAccount === devWalletPubkey.toString() &&
+                transfer.toUserAccount &&
+                transfer.toUserAccount !== devWalletPubkey.toString() &&
+                (transfer.mint === "So11111111111111111111111111111111111111112" || transfer.mint === WSOL_MINT) &&
+                transfer.tokenAmount > 0.001
+              ) {
+                console.log(`[ACTIVITY] Found distribution: ${transfer.tokenAmount} WSOL to ${transfer.toUserAccount.slice(0, 8)}... in tx ${tx.signature.slice(0, 8)}...`)
+                activities.push({
+                  type: "distribution",
+                  amount: transfer.tokenAmount,
+                  token_symbol: "WSOL",
+                  wallet_address: transfer.toUserAccount,
+                  tx_signature: tx.signature,
+                  timestamp: blockTime,
+                })
+              }
+            }
+          }
         }
 
         console.log(`[ACTIVITY] Processed ${enhancedTxs.length} enhanced transactions`)
