@@ -53,15 +53,19 @@ export async function getTopHolders(): Promise<TokenHolder[]> {
     const data = await response.json()
     
     if (data.error) {
+      console.error("[HELIUS] RPC error:", data.error)
       throw new Error(data.error.message || "RPC error")
     }
     
     const accounts: TokenAccountInfo[] = data.result?.value || []
 
     if (accounts.length === 0) {
-      console.log("[HELIUS] No token accounts found")
+      console.log(`[HELIUS] No token accounts found for mint ${PBTC_TOKEN_MINT}`)
+      console.log(`[HELIUS] This could mean: 1) Token has no holders yet, 2) Mint address is incorrect, 3) Token is on different network`)
       return []
     }
+
+    console.log(`[HELIUS] Found ${accounts.length} token accounts for mint ${PBTC_TOKEN_MINT}`)
 
     // Step 2: Get owner wallets for each token account (in parallel batches)
     const top25Accounts = accounts.slice(0, 25)
@@ -88,10 +92,16 @@ export async function getTopHolders(): Promise<TokenHolder[]> {
       holders.push(...batchResults.filter((h): h is TokenHolder => h !== null))
     }
 
-    console.log(`[HELIUS] Found ${holders.length} holders for pBTC`)
+    console.log(`[HELIUS] Successfully fetched ${holders.length} holders for pBTC`)
+    if (holders.length === 0) {
+      console.warn(`[HELIUS] No holders found. Token mint: ${PBTC_TOKEN_MINT}`)
+      console.warn(`[HELIUS] Verify: 1) Token exists on mainnet, 2) Token has holders, 3) Mint address is correct`)
+    }
     return holders
   } catch (error) {
     console.error("[HELIUS] Failed to fetch holders:", error)
+    console.error(`[HELIUS] Mint address used: ${PBTC_TOKEN_MINT}`)
+    console.error(`[HELIUS] Helius API key configured: ${!!process.env.HELIUS_API_KEY}`)
     return []
   }
 }

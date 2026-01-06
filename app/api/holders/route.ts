@@ -43,9 +43,18 @@ export async function GET() {
       updated_at: new Date().toISOString(),
     }))
 
+    console.log(`[HOLDERS] Returning ${formattedHolders.length} holders to frontend`)
     return NextResponse.json({ holders: formattedHolders })
   } catch (error) {
     console.error("[HOLDERS] Error fetching from chain:", error)
-    return NextResponse.json({ holders: [] })
+    console.error("[HOLDERS] Error details:", error instanceof Error ? error.message : String(error))
+    return NextResponse.json({ 
+      holders: [],
+      error: error instanceof Error ? error.message : "Unknown error",
+      debug: {
+        mintConfigured: !!process.env.PBTC_TOKEN_MINT,
+        heliusConfigured: !!process.env.HELIUS_API_KEY,
+      }
+    })
   }
 }

@@ -81,10 +81,20 @@ export async function GET(request: Request) {
     // Limit results
     activities = activities.slice(0, limit)
 
+    console.log(`[ACTIVITY] Returning ${activities.length} activities to frontend`)
     return NextResponse.json({ activities })
   } catch (error) {
     console.error("[ACTIVITY] Error:", error)
+    console.error("[ACTIVITY] Error details:", error instanceof Error ? error.message : String(error))
     // Return empty array instead of 500 error so UI still displays
-    return NextResponse.json({ activities: [] })
+    return NextResponse.json({ 
+      activities: [],
+      error: error instanceof Error ? error.message : "Unknown error",
+      debug: {
+        mintConfigured: !!process.env.PBTC_TOKEN_MINT,
+        heliusConfigured: !!process.env.HELIUS_API_KEY,
+        devWalletConfigured: !!process.env.DEV_WALLET_PRIVATE_KEY,
+      }
+    })
   }
 }
