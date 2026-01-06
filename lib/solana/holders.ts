@@ -27,9 +27,11 @@ export async function getTopHolders(): Promise<TokenHolder[]> {
   }
 
   if (!PBTC_TOKEN_MINT) {
-    console.error("[HELIUS] PBTC_TOKEN_MINT not configured")
+    console.error("[HELIUS] PBTC_TOKEN_MINT not configured. Check PBTC_TOKEN_MINT environment variable.")
     return []
   }
+
+  console.log(`[HELIUS] Fetching holders for mint: ${PBTC_TOKEN_MINT.slice(0, 8)}...`)
 
   try {
     // Step 1: Get largest token accounts

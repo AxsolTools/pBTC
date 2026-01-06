@@ -6,7 +6,9 @@ export async function GET() {
   try {
     // Always fetch holders from on-chain for real-time accuracy
     console.log("[HOLDERS] Fetching top 25 holders from on-chain...")
+    console.log(`[HOLDERS] PBTC_TOKEN_MINT from env: ${process.env.PBTC_TOKEN_MINT ? `${process.env.PBTC_TOKEN_MINT.slice(0, 8)}...` : "NOT SET"}`)
     const chainHolders = await getTopHolders()
+    console.log(`[HOLDERS] Found ${chainHolders.length} holders from chain`)
     
     // Get last reward info from database if available (for display purposes)
     let rewardData: Record<string, { last_reward_amount: number | null; last_reward_at: string | null }> = {}

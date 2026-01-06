@@ -48,9 +48,11 @@ export async function getOnChainActivities(limit: number = 50): Promise<OnChainA
   const activities: OnChainActivity[] = []
 
   if (!PBTC_TOKEN_MINT) {
-    console.warn("[ACTIVITY] PBTC_TOKEN_MINT not configured")
+    console.warn("[ACTIVITY] PBTC_TOKEN_MINT not configured. Check PBTC_TOKEN_MINT environment variable.")
     return []
   }
+
+  console.log(`[ACTIVITY] Fetching activities for mint: ${PBTC_TOKEN_MINT.slice(0, 8)}...`)
 
   try {
     const tokenMint = new PublicKey(PBTC_TOKEN_MINT)

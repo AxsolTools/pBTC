@@ -10,7 +10,9 @@ export async function GET(request: Request) {
 
     // Always fetch real-time on-chain activities first
     console.log("[ACTIVITY] Fetching real-time on-chain activities...")
+    console.log(`[ACTIVITY] PBTC_TOKEN_MINT from env: ${process.env.PBTC_TOKEN_MINT ? `${process.env.PBTC_TOKEN_MINT.slice(0, 8)}...` : "NOT SET"}`)
     const onChainActivities = await getOnChainActivities(limit)
+    console.log(`[ACTIVITY] Found ${onChainActivities.length} on-chain activities`)
 
     // Also get activities from database (backend operations)
     let dbActivities: any[] = []
