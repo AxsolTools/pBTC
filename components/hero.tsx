@@ -68,15 +68,27 @@ export function Hero() {
               </p>
             </motion.div>
 
-            <motion.a
-              href="#terminal"
+            <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.5 }}
-              className="mt-8 inline-flex w-fit items-center justify-center rounded-md bg-gold px-8 py-3 text-sm font-semibold text-background transition-all hover:bg-gold-bright hover:shadow-[0_0_30px_rgba(212,175,55,0.4)]"
+              className="mt-8 flex gap-4"
             >
-              VIEW LIVE FEED
-            </motion.a>
+              <a
+                href="#terminal"
+                className="inline-flex w-fit items-center justify-center rounded-md bg-gold px-8 py-3 text-sm font-semibold text-background transition-all hover:bg-gold-bright hover:shadow-[0_0_30px_rgba(212,175,55,0.4)]"
+              >
+                VIEW LIVE FEED
+              </a>
+              <a
+                href="https://bitcointalk.org/index.php?topic=5543336.0"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex w-fit items-center justify-center rounded-md bg-gold px-8 py-3 text-sm font-semibold text-background transition-all hover:bg-gold-bright hover:shadow-[0_0_30px_rgba(212,175,55,0.4)]"
+              >
+                VIEW LORE
+              </a>
+            </motion.div>
           </div>
 
           {/* Right: Stats */}
