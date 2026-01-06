@@ -35,3 +35,45 @@ services:
       - key: CRON_SECRET
         scope: RUN_TIME
         type: SECRET
+
+jobs:
+  - name: buyback-cron
+    github:
+      repo: AxsolTools/pBTC
+      branch: main
+      deploy_on_push: true
+    schedule:
+      cron: "*/5 * * * *"  # Every 5 minutes
+    run_command: |
+      if [ -z "$APP_URL" ]; then
+        echo "Error: APP_URL environment variable not set. Please set it to your app's public URL (e.g., https://pbtc-buyback-xxxxx.ondigitalocean.app)"
+        exit 1
+      fi
+      curl -X POST ${APP_URL}/api/cron/buyback \
+        -H "Authorization: Bearer ${CRON_SECRET}" \
+        -H "Content-Type: application/json" \
+        --fail --silent --show-error
+    environment_slug: node-js
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    envs:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        value: https://rbmzrqsnsvzgoxzpynky.supabase.co
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        value: sb_publishable_brXWCbp-cuyDM9JHWQgyww_xirMdnDH
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJibXpycXNuc3Z6Z294enB5bmt5Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MjQ0OTg2MywiZXhwIjoyMDc4MDI1ODYzfQ.2LWSL_-rKZuaRqugScUUWusupdD2a-z8SACQmcUuh9w
+      - key: HELIUS_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: PBTC_TOKEN_MINT
+        scope: RUN_TIME
+        type: SECRET
+      - key: DEV_WALLET_PRIVATE_KEY
+        scope: RUN_TIME
+        type: SECRET
+      - key: CRON_SECRET
+        scope: RUN_TIME
+        type: SECRET
