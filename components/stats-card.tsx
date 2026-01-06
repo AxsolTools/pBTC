@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { motion } from "framer-motion"
 import useSWR from "swr"
+import { createClient } from "@/lib/supabase/client"
 
 const fetcher = async (url: string) => {
   try {
@@ -36,24 +37,103 @@ function FlipNumber({ value, prefix = "", suffix = "" }: { value: number; prefix
 }
 
 export function StatsCard() {
-  const { data, error } = useSWR("/api/stats", fetcher, {
-    refreshInterval: 30000,
+  const [stats, setStats] = useState({
+    totalBoughtBack: 0,
+    totalDistributed: 0,
+    holdersRewarded: 0,
   })
 
-  const stats = [
+  // Fetch initial stats and poll for updates
+  const { data, error, mutate } = useSWR("/api/stats", fetcher, {
+    refreshInterval: 10000, // Poll every 10 seconds
+    revalidateOnFocus: true,
+    revalidateOnReconnect: true,
+  })
+
+  // Update stats when data changes
+  useEffect(() => {
+    if (data) {
+      setStats({
+        totalBoughtBack: data.totalBoughtBack || 0,
+        totalDistributed: data.totalDistributed || 0,
+        holdersRewarded: data.holdersRewarded || 0,
+      })
+    }
+  }, [data])
+
+  // Real-time Supabase subscriptions for instant updates
+  useEffect(() => {
+    let channels: any[] = []
+
+    try {
+      const supabase = createClient()
+      if (!supabase) return
+
+      // Subscribe to buybacks table for real-time updates
+      const buybacksChannel = supabase
+        .channel("stats-buybacks")
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "buybacks",
+            filter: "status=eq.completed",
+          },
+          () => {
+            // Refetch stats when buyback is completed
+            mutate()
+          },
+        )
+        .subscribe()
+
+      // Subscribe to distributions table for real-time updates
+      const distributionsChannel = supabase
+        .channel("stats-distributions")
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "distributions",
+            filter: "status=eq.completed",
+          },
+          () => {
+            // Refetch stats when distribution is completed
+            mutate()
+          },
+        )
+        .subscribe()
+
+      channels = [buybacksChannel, distributionsChannel]
+    } catch (err) {
+      console.warn("[STATS] Realtime subscription failed:", err)
+    }
+
+    return () => {
+      channels.forEach((channel) => {
+        try {
+          const supabase = createClient()
+          supabase?.removeChannel(channel)
+        } catch {}
+      })
+    }
+  }, [mutate])
+
+  const statsList = [
     {
       label: "TOTAL BOUGHT BACK",
-      value: data?.totalBoughtBack || 0,
+      value: stats.totalBoughtBack,
       suffix: " SOL",
     },
     {
       label: "TOTAL DISTRIBUTED",
-      value: data?.totalDistributed || 0,
+      value: stats.totalDistributed,
       suffix: " WSOL",
     },
     {
       label: "HOLDERS REWARDED",
-      value: data?.holdersRewarded || 0,
+      value: stats.holdersRewarded,
       suffix: "",
     },
   ]
@@ -71,7 +151,7 @@ export function StatsCard() {
       </div>
 
       <div className="space-y-6">
-        {stats.map((stat, index) => (
+        {statsList.map((stat, index) => (
           <div key={stat.label} className="space-y-1">
             <p className="text-xs text-gold-muted font-mono tracking-wider">{stat.label}</p>
             <FlipNumber value={stat.value} suffix={stat.suffix} />

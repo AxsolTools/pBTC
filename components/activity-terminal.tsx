@@ -143,8 +143,10 @@ export function ActivityTerminal() {
   const [activities, setActivities] = useState<Activity[]>([])
   const [newIds, setNewIds] = useState<Set<string>>(new Set())
 
-  const { data } = useSWR("/api/activity?limit=50", fetcher, {
-    refreshInterval: 10000,
+  const { data, mutate } = useSWR("/api/activity?limit=50", fetcher, {
+    refreshInterval: 5000, // Poll every 5 seconds for on-chain data
+    revalidateOnFocus: true,
+    revalidateOnReconnect: true,
     onSuccess: (data) => {
       if (data?.activities) {
         setActivities(data.activities)
@@ -152,19 +154,24 @@ export function ActivityTerminal() {
     },
   })
 
+  // Real-time Supabase subscriptions for instant updates
   useEffect(() => {
-    let channel: any = null
+    const channels: any[] = []
 
     try {
       const supabase = createClient()
       if (!supabase) return
 
-      channel = supabase
+      // Subscribe to activity_log for backend operations
+      const activityChannel = supabase
         .channel("activity-realtime")
         .on("postgres_changes", { event: "INSERT", schema: "public", table: "activity_log" }, (payload: any) => {
           const newActivity = payload.new as Activity
           setNewIds((prev) => new Set(prev).add(newActivity.id))
           setActivities((prev) => [newActivity, ...prev].slice(0, 50))
+          
+          // Also trigger a refetch to get latest on-chain data
+          mutate()
 
           setTimeout(() => {
             setNewIds((prev) => {
@@ -175,19 +182,40 @@ export function ActivityTerminal() {
           }, 2000)
         })
         .subscribe()
+      channels.push(activityChannel)
+
+      // Subscribe to buybacks table for real-time buyback updates
+      const buybacksChannel = supabase
+        .channel("buybacks-realtime")
+        .on("postgres_changes", { event: "*", schema: "public", table: "buybacks" }, () => {
+          // Refetch activities when buyback status changes
+          mutate()
+        })
+        .subscribe()
+      channels.push(buybacksChannel)
+
+      // Subscribe to distributions table for real-time distribution updates
+      const distributionsChannel = supabase
+        .channel("distributions-realtime")
+        .on("postgres_changes", { event: "*", schema: "public", table: "distributions" }, () => {
+          // Refetch activities when distribution status changes
+          mutate()
+        })
+        .subscribe()
+      channels.push(distributionsChannel)
     } catch (err) {
-      console.warn("[pBTC] Realtime subscription failed:", err)
+      console.warn("[TERMINAL] Realtime subscription failed:", err)
     }
 
     return () => {
-      if (channel) {
+      channels.forEach((channel) => {
         try {
           const supabase = createClient()
           supabase?.removeChannel(channel)
         } catch {}
-      }
+      })
     }
-  }, [])
+  }, [mutate])
 
   return (
     <section id="terminal" className="py-12">

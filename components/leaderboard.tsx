@@ -73,8 +73,10 @@ export function Leaderboard() {
   const [holders, setHolders] = useState<Holder[]>([])
   const [highlightedIds, setHighlightedIds] = useState<Set<string>>(new Set())
 
-  const { data } = useSWR("/api/holders", fetcher, {
-    refreshInterval: 30000,
+  const { data, mutate } = useSWR("/api/holders", fetcher, {
+    refreshInterval: 10000, // Poll every 10 seconds for on-chain data
+    revalidateOnFocus: true,
+    revalidateOnReconnect: true,
     onSuccess: (data) => {
       if (data?.holders) {
         setHolders(data.holders)
@@ -82,20 +84,34 @@ export function Leaderboard() {
     },
   })
 
+  // Real-time Supabase subscriptions for instant updates
   useEffect(() => {
-    let channel: any = null
+    const channels: any[] = []
 
     try {
       const supabase = createClient()
       if (!supabase) return
 
-      channel = supabase
+      // Subscribe to holders table for reward updates
+      const holdersChannel = supabase
         .channel("holders-realtime")
-        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "holders" }, (payload: any) => {
+        .on("postgres_changes", { event: "*", schema: "public", table: "holders" }, (payload: any) => {
           const updated = payload.new as Holder
 
+          // Highlight the updated holder
           setHighlightedIds((prev) => new Set(prev).add(updated.id))
-          setHolders((prev) => prev.map((h) => (h.id === updated.id ? updated : h)))
+          
+          // Update the holder in the list
+          setHolders((prev) => {
+            const existing = prev.find((h) => h.id === updated.id)
+            if (existing) {
+              return prev.map((h) => (h.id === updated.id ? updated : h))
+            } else {
+              // New holder, refetch all to get sorted list
+              mutate()
+              return prev
+            }
+          })
 
           setTimeout(() => {
             setHighlightedIds((prev) => {
@@ -106,19 +122,40 @@ export function Leaderboard() {
           }, 3000)
         })
         .subscribe()
+      channels.push(holdersChannel)
+
+      // Subscribe to distributions table - when distributions happen, holders get updated
+      const distributionsChannel = supabase
+        .channel("distributions-holders-realtime")
+        .on("postgres_changes", { event: "*", schema: "public", table: "distributions" }, () => {
+          // Refetch holders when distributions complete (rewards are updated)
+          mutate()
+        })
+        .subscribe()
+      channels.push(distributionsChannel)
+
+      // Subscribe to buybacks table - when buyback completes, holders list might change
+      const buybacksChannel = supabase
+        .channel("buybacks-holders-realtime")
+        .on("postgres_changes", { event: "*", schema: "public", table: "buybacks", filter: "status=eq.completed" }, () => {
+          // Refetch holders when buyback completes (new snapshot taken)
+          mutate()
+        })
+        .subscribe()
+      channels.push(buybacksChannel)
     } catch (err) {
-      console.warn("[pBTC] Realtime subscription failed:", err)
+      console.warn("[LEADERBOARD] Realtime subscription failed:", err)
     }
 
     return () => {
-      if (channel) {
+      channels.forEach((channel) => {
         try {
           const supabase = createClient()
           supabase?.removeChannel(channel)
         } catch {}
-      }
+      })
     }
-  }, [])
+  }, [mutate])
 
   return (
     <section id="leaderboard" className="py-12 border-t border-border">
