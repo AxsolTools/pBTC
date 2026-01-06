@@ -8,17 +8,12 @@ export async function GET(request: Request) {
     const type = searchParams.get("type") // buyback, swap, distribution
     const limit = Number.parseInt(searchParams.get("limit") || "50")
 
-    // Always fetch real-time on-chain activities first
-    console.log("[ACTIVITY] Fetching real-time on-chain activities...")
-    console.log(`[ACTIVITY] PBTC_TOKEN_MINT from env: ${process.env.PBTC_TOKEN_MINT ? `${process.env.PBTC_TOKEN_MINT.slice(0, 8)}...` : "NOT SET"}`)
-    const onChainActivities = await getOnChainActivities(limit)
-    console.log(`[ACTIVITY] Found ${onChainActivities.length} on-chain activities`)
-
-    // Also get activities from database (backend operations)
+    // PRIORITY: Get real-time activities from database (webhook events)
+    // These are the live swaps/buys/sells coming in via webhooks
     let dbActivities: any[] = []
     try {
       const supabase = getAdminClient()
-      let query = supabase.from("activity_log").select("*").order("created_at", { ascending: false }).limit(limit)
+      let query = supabase.from("activity_log").select("*").order("created_at", { ascending: false }).limit(limit * 2) // Get more to account for filtering
 
       if (type) {
         query = query.eq("type", type)
@@ -28,16 +23,27 @@ export async function GET(request: Request) {
 
       if (!error && data) {
         dbActivities = data
+        console.log(`[ACTIVITY] Found ${dbActivities.length} real-time activities from webhooks (database)`)
+      } else if (error) {
+        console.warn(`[ACTIVITY] Database query error: ${error.message}`)
       }
     } catch (dbError) {
-      // Database table doesn't exist or error - that's okay, we have on-chain data
-      console.log("[ACTIVITY] Could not fetch from database, using on-chain data only")
+      console.warn("[ACTIVITY] Could not fetch from database:", dbError)
     }
 
-    // Merge on-chain and database activities, removing duplicates by tx_signature
+    // Fallback: Fetch historical on-chain activities if database is empty
+    let onChainActivities: any[] = []
+    if (dbActivities.length === 0) {
+      console.log("[ACTIVITY] No webhook data found, fetching historical on-chain activities...")
+      console.log(`[ACTIVITY] PBTC_TOKEN_MINT from env: ${process.env.PBTC_TOKEN_MINT ? `${process.env.PBTC_TOKEN_MINT.slice(0, 8)}...` : "NOT SET"}`)
+      onChainActivities = await getOnChainActivities(limit)
+      console.log(`[ACTIVITY] Found ${onChainActivities.length} historical on-chain activities`)
+    }
+
+    // Merge activities, prioritizing database (webhook) data
     const activityMap = new Map<string, any>()
 
-    // Add database activities first (these are from our backend operations)
+    // Add database activities FIRST (these are real-time from webhooks)
     for (const activity of dbActivities) {
       if (activity.tx_signature) {
         activityMap.set(activity.tx_signature, {
@@ -53,7 +59,7 @@ export async function GET(request: Request) {
       }
     }
 
-    // Add on-chain activities (real-time swaps and transactions)
+    // Add on-chain activities only if not already in database (no duplicates)
     for (const activity of onChainActivities) {
       if (!activityMap.has(activity.tx_signature)) {
         activityMap.set(activity.tx_signature, {

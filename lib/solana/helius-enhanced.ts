@@ -78,6 +78,73 @@ export async function getEnhancedTransactionsForAddress(
 }
 
 /**
+ * Fetch enhanced transactions for a token mint by querying Jupiter aggregator
+ * Jupiter is the most common DEX for token swaps on Solana
+ */
+export async function getEnhancedTransactionsForTokenMint(
+  tokenMint: string,
+  limit: number = 50,
+): Promise<HeliusEnhancedTransaction[]> {
+  if (!HELIUS_API_KEY) {
+    console.error("[HELIUS] Enhanced API key not configured")
+    return []
+  }
+
+  try {
+    // Query Jupiter V6 aggregator (most common for token swaps)
+    const JUPITER_V6 = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"
+    
+    const response = await fetch(
+      `https://api.helius.xyz/v0/addresses/${JUPITER_V6}/transactions?api-key=${HELIUS_API_KEY}&limit=500`,
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    )
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`[HELIUS] Error fetching transactions: ${response.status} - ${errorText}`)
+      return []
+    }
+
+    const data: HeliusEnhancedResponse = await response.json()
+
+    if (!data.transactions || data.transactions.length === 0) {
+      console.warn("[HELIUS] No transactions found")
+      return []
+    }
+
+    // Filter for transactions involving our token mint that are swaps
+    const swapTransactions = data.transactions.filter((tx) => {
+      // Check if transaction involves our token mint
+      const involvesToken = tx.tokenTransfers?.some(
+        (transfer) => transfer.mint === tokenMint
+      )
+      
+      // Check if it's a swap
+      const isSwap = tx.type === "SWAP" || 
+                    tx.description?.toLowerCase().includes("swap") ||
+                    tx.instructions?.some((ix) => ix.type === "SWAP" || ix.programName?.toLowerCase().includes("jupiter"))
+      
+      return involvesToken && isSwap
+    })
+
+    // Sort by timestamp (newest first) and limit
+    swapTransactions.sort((a, b) => b.timestamp - a.timestamp)
+    const limited = swapTransactions.slice(0, limit)
+
+    console.log(`[HELIUS] Found ${limited.length} token swaps for mint ${tokenMint.slice(0, 8)}...`)
+    return limited
+  } catch (error) {
+    console.error("[HELIUS] Error fetching enhanced transactions for token mint:", error)
+    return []
+  }
+}
+
+/**
  * Detect swap activity from enhanced transaction for a specific token mint
  * Returns SOL amount spent/received in the swap
  */

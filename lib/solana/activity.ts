@@ -64,13 +64,11 @@ export async function getOnChainActivities(limit: number = 50): Promise<OnChainA
     const wsolMint = new PublicKey(WSOL_MINT)
     const devWalletPubkey = getDevWalletPublicKey()
 
-    // Fetch token swaps (buys/sells) for the mint address
+    // Fetch token swaps (buys/sells) for the mint by querying DEX programs
     try {
       console.log(`[ACTIVITY] Fetching token swaps for mint: ${PBTC_TOKEN_MINT.slice(0, 8)}...`)
-      const tokenSwaps = await getEnhancedTransactionsForAddress(PBTC_TOKEN_MINT, limit)
-      
-      // Import the new function
-      const { detectTokenSwapFromEnhanced } = await import("./helius-enhanced")
+      const { getEnhancedTransactionsForTokenMint, detectTokenSwapFromEnhanced } = await import("./helius-enhanced")
+      const tokenSwaps = await getEnhancedTransactionsForTokenMint(PBTC_TOKEN_MINT, limit)
       
       for (const tx of tokenSwaps) {
         const blockTime = tx.timestamp * 1000

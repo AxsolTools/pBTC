@@ -79,6 +79,13 @@ export async function POST(request: Request) {
     const supabase = getAdminClient()
     const WSOL_MINT = "So11111111111111111111111111111111111111112"
     const PBTC_TOKEN_MINT = process.env.PBTC_TOKEN_MINT
+    
+    if (!PBTC_TOKEN_MINT) {
+      console.error("[WEBHOOK] PBTC_TOKEN_MINT not set in environment")
+    } else {
+      console.log(`[WEBHOOK] Monitoring token mint: ${PBTC_TOKEN_MINT.slice(0, 8)}...`)
+    }
+    
     let processed = 0
 
     for (const tx of payload) {
@@ -86,26 +93,64 @@ export async function POST(request: Request) {
         const timestamp = tx.timestamp * 1000 // Convert to milliseconds
         const created_at = new Date(timestamp).toISOString()
 
-        // Detect SWAP transactions (token buys/sells or WSOL wrapping)
-        if (tx.type === "SWAP" || tx.description?.toLowerCase().includes("swap") || tx.description?.toLowerCase().includes("wrap")) {
-          // First, check for token swaps (buys/sells of our token)
-          if (PBTC_TOKEN_MINT && tx.tokenTransfers) {
-            const tokenTransfer = tx.tokenTransfers.find((t) => t.mint === PBTC_TOKEN_MINT)
-            const solTransfer = tx.tokenTransfers.find((t) => t.mint === WSOL_MINT) || 
-                               tx.nativeTransfers?.find((t) => Math.abs(t.amount) > 0.01)
+        // Detect SWAP transactions (token buys/sells)
+        // Check if this transaction involves our token mint
+        if (PBTC_TOKEN_MINT && tx.tokenTransfers && tx.tokenTransfers.length > 0) {
+          const tokenTransfer = tx.tokenTransfers.find((t) => t.mint === PBTC_TOKEN_MINT)
+          
+          if (tokenTransfer) {
+            console.log(`[WEBHOOK] Found transaction involving token mint: ${tx.signature.slice(0, 8)}...`)
+            console.log(`[WEBHOOK] Transaction type: ${tx.type}, Description: ${tx.description}`)
+            
+            // This transaction involves our token - check if it's a swap
+            // Be more lenient - if it involves our token and has SOL/WSOL transfers, it's likely a swap
+            const hasSolTransfer = tx.tokenTransfers.some((t) => t.mint === WSOL_MINT) || 
+                                   (tx.nativeTransfers && tx.nativeTransfers.length > 0)
+            
+            const isSwap = tx.type === "SWAP" || 
+                          tx.description?.toLowerCase().includes("swap") ||
+                          tx.instructions?.some((ix) => 
+                            ix.programName?.toLowerCase().includes("jupiter") ||
+                            ix.programName?.toLowerCase().includes("raydium") ||
+                            ix.programName?.toLowerCase().includes("orca") ||
+                            ix.type === "SWAP"
+                          ) ||
+                          (hasSolTransfer && tokenTransfer) // If it has our token + SOL, it's likely a swap
 
-            if (tokenTransfer && solTransfer) {
-              // This is a buy/sell of our token
+            if (isSwap) {
+              // Find SOL/WSOL amount in the swap
+              const solTransfer = tx.tokenTransfers.find((t) => t.mint === WSOL_MINT) || 
+                                 tx.nativeTransfers?.find((t) => Math.abs(t.amount) > 0.01)
+
               let solAmount = 0
-              if ("tokenAmount" in solTransfer) {
-                solAmount = solTransfer.tokenAmount
-              } else if ("amount" in solTransfer) {
-                solAmount = Math.abs(solTransfer.amount)
+              if (solTransfer) {
+                if ("tokenAmount" in solTransfer) {
+                  solAmount = solTransfer.tokenAmount
+                } else if ("amount" in solTransfer) {
+                  solAmount = Math.abs(solTransfer.amount)
+                }
+              }
+
+              // Also check native transfers for SOL amount
+              if (solAmount === 0 && tx.nativeTransfers && tx.nativeTransfers.length > 0) {
+                const nativeTransfer = tx.nativeTransfers.find((t) => Math.abs(t.amount) > 0.01)
+                if (nativeTransfer) {
+                  solAmount = Math.abs(nativeTransfer.amount)
+                }
               }
 
               if (solAmount > 0.01) {
+                // Determine if it's a buy or sell
+                // If token is received (toUserAccount), it's a buy
+                // If token is sent (fromUserAccount), it's a sell
+                const isBuy = tokenTransfer.toUserAccount && 
+                             tokenTransfer.toUserAccount !== tx.feePayer &&
+                             tokenTransfer.toUserAccount !== tokenTransfer.fromUserAccount
+                
                 const wallet = tokenTransfer.toUserAccount || tokenTransfer.fromUserAccount || tx.feePayer
-                console.log(`[WEBHOOK] Processing TOKEN SWAP: ${solAmount} SOL in tx ${tx.signature.slice(0, 8)}...`)
+                const direction = isBuy ? "buy" : "sell"
+                
+                console.log(`[WEBHOOK] Processing TOKEN SWAP (${direction}): ${solAmount} SOL in tx ${tx.signature.slice(0, 8)}... by ${wallet.slice(0, 8)}...`)
 
                 try {
                   await supabase.from("activity_log").insert({
@@ -118,14 +163,44 @@ export async function POST(request: Request) {
                     created_at,
                   })
                   processed++
+                  console.log(`[WEBHOOK] ✅ Stored swap event in database`)
                 } catch (dbError: any) {
                   console.warn(`[WEBHOOK] Could not insert token swap into activity_log: ${dbError.message}`)
+                  // Still count as processed even if DB insert fails
                   processed++
                 }
-                continue // Skip WSOL wrapping check if we found a token swap
+                continue // Skip other checks if we found a token swap
               }
             }
           }
+        }
+
+        // Legacy: Detect WSOL wrapping (for backwards compatibility)
+        if (tx.type === "SWAP" || tx.description?.toLowerCase().includes("swap") || tx.description?.toLowerCase().includes("wrap")) {
+          if (tx.tokenTransfers) {
+            for (const transfer of tx.tokenTransfers) {
+              if (transfer.mint === WSOL_MINT && transfer.tokenAmount > 0.01) {
+                console.log(`[WEBHOOK] Processing WSOL WRAP: ${transfer.tokenAmount} WSOL in tx ${tx.signature.slice(0, 8)}...`)
+
+                try {
+                  await supabase.from("activity_log").insert({
+                    type: "swap",
+                    amount: transfer.tokenAmount,
+                    token_symbol: "WSOL",
+                    wallet_address: transfer.toUserAccount || tx.feePayer,
+                    tx_signature: tx.signature,
+                    status: "completed",
+                    created_at,
+                  })
+                  processed++
+                } catch (dbError: any) {
+                  console.warn(`[WEBHOOK] Could not insert swap into activity_log: ${dbError.message}`)
+                }
+                break
+              }
+            }
+          }
+        }
 
           // Fallback: Look for WSOL wrapping transactions
           if (tx.tokenTransfers) {
