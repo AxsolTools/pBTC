@@ -108,14 +108,22 @@ async function getDevWalletKeypair(): Promise<Keypair> {
 
 // This endpoint is called by DigitalOcean cron every 5 minutes
 export async function POST(request: Request) {
+  console.log("[CRON] ========================================")
+  console.log("[CRON] BUYBACK CRON TRIGGERED")
+  console.log("[CRON] ========================================")
   try {
     // Verify cron secret
     const authHeader = request.headers.get("authorization")
     const cronSecret = process.env.CRON_SECRET
 
+    console.log(`[CRON] Auth check: CRON_SECRET=${cronSecret ? "SET" : "NOT SET"}, AuthHeader=${authHeader ? "PRESENT" : "MISSING"}`)
+
     if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+      console.error("[CRON] ❌ UNAUTHORIZED - Auth header mismatch")
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
+    console.log("[CRON] ✅ Authentication passed")
 
     const supabase = getAdminClient()
 
