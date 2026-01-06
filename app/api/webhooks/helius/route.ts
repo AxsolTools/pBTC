@@ -202,33 +202,6 @@ export async function POST(request: Request) {
           }
         }
 
-          // Fallback: Look for WSOL wrapping transactions
-          if (tx.tokenTransfers) {
-            for (const transfer of tx.tokenTransfers) {
-              if (transfer.mint === WSOL_MINT && transfer.tokenAmount > 0.01) {
-                console.log(`[WEBHOOK] Processing WSOL WRAP: ${transfer.tokenAmount} WSOL in tx ${tx.signature.slice(0, 8)}...`)
-
-                try {
-                  await supabase.from("activity_log").insert({
-                    type: "swap",
-                    amount: transfer.tokenAmount,
-                    token_symbol: "WSOL",
-                    wallet_address: transfer.toUserAccount || tx.feePayer,
-                    tx_signature: tx.signature,
-                    status: "completed",
-                    created_at,
-                  })
-                  processed++
-                } catch (dbError: any) {
-                  console.warn(`[WEBHOOK] Could not insert swap into activity_log: ${dbError.message}`)
-                  processed++
-                }
-                break
-              }
-            }
-          }
-        }
-
         // Detect TRANSFER transactions (buybacks/claims)
         if (tx.type === "TRANSFER") {
           // Look for large native SOL transfers (buybacks)
