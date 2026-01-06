@@ -35,4 +35,3 @@ services:
       - key: CRON_SECRET
         scope: RUN_TIME
         type: SECRET
-
