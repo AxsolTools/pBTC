@@ -75,25 +75,40 @@ export async function getOnChainActivities(limit: number = 50): Promise<OnChainA
       for (const tx of tokenSwaps) {
         const blockTime = tx.timestamp * 1000
         
-        // Extract swap info directly from the transaction
-        const wsolTransfer = tx.tokenTransfers?.find((t) => t.mint === "So11111111111111111111111111111111111111112")
-        const tokenTransfer = tx.tokenTransfers?.find((t) => t.mint === PBTC_TOKEN_MINT)
+        // Use the enhanced detection function for better accuracy
+        const swapInfo = detectTokenSwapFromEnhanced(tx, PBTC_TOKEN_MINT)
         
-        if (wsolTransfer && tokenTransfer) {
-          const solAmount = wsolTransfer.tokenAmount || 0
-          const isBuy = tokenTransfer.toUserAccount && tokenTransfer.toUserAccount !== tx.feePayer
-          const wallet = tokenTransfer.toUserAccount || tokenTransfer.fromUserAccount || tx.feePayer
+        if (swapInfo && swapInfo.amount > 0.01) {
+          console.log(`[ACTIVITY] Found token ${swapInfo.direction}: ${swapInfo.amount} SOL in tx ${tx.signature.slice(0, 8)}...`)
+          activities.push({
+            type: "swap",
+            amount: swapInfo.amount,
+            token_symbol: "SOL",
+            wallet_address: swapInfo.wallet,
+            tx_signature: tx.signature,
+            timestamp: blockTime,
+          })
+        } else {
+          // Fallback: Extract swap info directly from the transaction
+          const wsolTransfer = tx.tokenTransfers?.find((t) => t.mint === "So11111111111111111111111111111111111111112")
+          const tokenTransfer = tx.tokenTransfers?.find((t) => t.mint === PBTC_TOKEN_MINT)
           
-          if (solAmount > 0.01) {
-            console.log(`[ACTIVITY] Found token ${isBuy ? "buy" : "sell"}: ${solAmount} SOL in tx ${tx.signature.slice(0, 8)}...`)
-            activities.push({
-              type: "swap",
-              amount: solAmount,
-              token_symbol: "SOL",
-              wallet_address: wallet,
-              tx_signature: tx.signature,
-              timestamp: blockTime,
-            })
+          if (wsolTransfer && tokenTransfer) {
+            const solAmount = wsolTransfer.tokenAmount || 0
+            const isBuy = tokenTransfer.toUserAccount && tokenTransfer.toUserAccount !== tx.feePayer
+            const wallet = tokenTransfer.toUserAccount || tokenTransfer.fromUserAccount || tx.feePayer
+            
+            if (solAmount > 0.01) {
+              console.log(`[ACTIVITY] Found token ${isBuy ? "buy" : "sell"}: ${solAmount} SOL in tx ${tx.signature.slice(0, 8)}...`)
+              activities.push({
+                type: "swap",
+                amount: solAmount,
+                token_symbol: "SOL",
+                wallet_address: wallet,
+                tx_signature: tx.signature,
+                timestamp: blockTime,
+              })
+            }
           }
         }
       }

@@ -104,7 +104,7 @@ export async function getEnhancedTransactionsForTokenMint(
           {
             transactionDetails: "full",
             sortOrder: "desc", // Newest first
-            limit: Math.min(limit * 2, 200), // Get more transactions to catch all recent swaps
+            limit: Math.min(limit, 100), // Helius only allows up to 100 transactions when transactionDetails is 'full'
             filters: {
               status: "succeeded", // Only successful transactions
             },
@@ -253,30 +253,59 @@ export function detectTokenSwapFromEnhanced(
 ): { amount: number; direction: "buy" | "sell"; wallet: string } | null {
   const WSOL_MINT = "So11111111111111111111111111111111111111112"
 
-  // Check if this is a SWAP transaction involving our token
+  // Look for token transfers involving our token mint and WSOL/SOL
+  // Don't require explicit "SWAP" type - many swaps don't have that label
+  if (tx.tokenTransfers && tx.tokenTransfers.length > 0) {
+    const tokenTransfer = tx.tokenTransfers.find((t) => t.mint === tokenMint)
+    const solTransfer = tx.tokenTransfers.find((t) => t.mint === WSOL_MINT)
+
+    // If we have both token and SOL transfers, it's likely a swap
+    if (tokenTransfer && solTransfer) {
+      // Determine direction: if token is received, it's a buy; if sent, it's a sell
+      const isBuy = tokenTransfer.toUserAccount && 
+                   tokenTransfer.toUserAccount !== tx.feePayer &&
+                   tokenTransfer.toUserAccount !== tokenTransfer.fromUserAccount
+      const direction = isBuy ? "buy" : "sell"
+      
+      // Get SOL amount from WSOL transfer
+      let solAmount = solTransfer.tokenAmount || 0
+
+      // Also check native transfers for SOL amount if WSOL transfer doesn't have amount
+      if (solAmount === 0 && tx.nativeTransfers && tx.nativeTransfers.length > 0) {
+        const nativeTransfer = tx.nativeTransfers.find((t) => Math.abs(t.amount) > 0.01)
+        if (nativeTransfer) {
+          solAmount = Math.abs(nativeTransfer.amount)
+        }
+      }
+
+      if (solAmount > 0.01) {
+        return {
+          amount: solAmount,
+          direction,
+          wallet: (isBuy ? tokenTransfer.toUserAccount : tokenTransfer.fromUserAccount) || tx.feePayer,
+        }
+      }
+    }
+  }
+
+  // Fallback: Check if transaction type explicitly indicates a swap
   if (tx.type === "SWAP" || tx.description?.toLowerCase().includes("swap")) {
-    // Look for token transfers involving our token mint
     if (tx.tokenTransfers && tx.tokenTransfers.length > 0) {
       const tokenTransfer = tx.tokenTransfers.find((t) => t.mint === tokenMint)
       const solTransfer = tx.tokenTransfers.find((t) => t.mint === WSOL_MINT) || 
                          tx.nativeTransfers?.find((t) => t.amount > 0)
 
-      if (tokenTransfer) {
-        // Determine direction: if token is received, it's a buy; if sent, it's a sell
+      if (tokenTransfer && solTransfer) {
         const isBuy = tokenTransfer.toUserAccount && tokenTransfer.toUserAccount !== tx.feePayer
         const direction = isBuy ? "buy" : "sell"
         
-        // Get SOL amount from WSOL transfer or native transfer
         let solAmount = 0
-        if (solTransfer) {
-          if ("tokenAmount" in solTransfer) {
-            solAmount = solTransfer.tokenAmount
-          } else if ("amount" in solTransfer) {
-            solAmount = solTransfer.amount
-          }
+        if ("tokenAmount" in solTransfer) {
+          solAmount = solTransfer.tokenAmount
+        } else if ("amount" in solTransfer) {
+          solAmount = solTransfer.amount
         }
 
-        // Also check native transfers for SOL amount
         if (solAmount === 0 && tx.nativeTransfers && tx.nativeTransfers.length > 0) {
           const nativeTransfer = tx.nativeTransfers.find((t) => Math.abs(t.amount) > 0.01)
           if (nativeTransfer) {
