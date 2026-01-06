@@ -17,14 +17,14 @@ function getHeliusRpcUrl(): string {
   return clusterApiUrl("mainnet-beta")
 }
 
-const RPC_URL = getHeliusRpcUrl()
-
 // Singleton connection instance
 let connectionInstance: Connection | null = null
 
 export function getConnection(): Connection {
   if (!connectionInstance) {
-    connectionInstance = new Connection(RPC_URL, {
+    // Compute RPC URL lazily when connection is first needed (runtime env vars available)
+    const rpcUrl = getHeliusRpcUrl()
+    connectionInstance = new Connection(rpcUrl, {
       commitment: "confirmed",
       confirmTransactionInitialTimeout: 60000,
     })
