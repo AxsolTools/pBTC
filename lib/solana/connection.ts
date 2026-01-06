@@ -36,5 +36,8 @@ export function getConnection(): Connection {
 export const PBTC_TOKEN_MINT = process.env.PBTC_TOKEN_MINT || ""
 export const WSOL_MINT = "So11111111111111111111111111111111111111112" // Wrapped SOL (9 decimals)
 
+// Helius API Key (read at module level like PBTC_TOKEN_MINT)
+export const HELIUS_API_KEY = process.env.HELIUS_API_KEY || ""
+
 // Thresholds
 export const CLAIM_THRESHOLD_SOL = 0 // Disabled - claim any amount > 0

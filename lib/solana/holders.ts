@@ -1,4 +1,4 @@
-import { PBTC_TOKEN_MINT } from "./connection"
+import { PBTC_TOKEN_MINT, HELIUS_API_KEY } from "./connection"
 
 interface TokenHolder {
   wallet: string
@@ -19,17 +19,12 @@ interface TokenAccountInfo {
  * Returns OWNER wallets (not token accounts) for proper distribution
  */
 export async function getTopHolders(): Promise<TokenHolder[]> {
-  const heliusApiKey = process.env.HELIUS_API_KEY
-
-  if (!heliusApiKey) {
+  if (!HELIUS_API_KEY) {
     console.error("[HELIUS] API key not configured")
-    console.error(`[HELIUS] Environment check - HELIUS_API_KEY exists: ${!!process.env.HELIUS_API_KEY}`)
-    console.error(`[HELIUS] Environment check - HELIUS_API_KEY length: ${process.env.HELIUS_API_KEY?.length || 0}`)
-    console.error(`[HELIUS] All HELIUS env vars:`, Object.keys(process.env).filter(k => k.includes('HELIUS')))
     return []
   }
 
-  console.log(`[HELIUS] API key found (length: ${heliusApiKey.length})`)
+  console.log(`[HELIUS] API key found (length: ${HELIUS_API_KEY.length})`)
 
   if (!PBTC_TOKEN_MINT) {
     console.error("[HELIUS] PBTC_TOKEN_MINT not configured. Check PBTC_TOKEN_MINT environment variable.")
@@ -40,7 +35,7 @@ export async function getTopHolders(): Promise<TokenHolder[]> {
 
   try {
     // Step 1: Get largest token accounts
-    const response = await fetch(`https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`, {
+    const response = await fetch(`https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -48,6 +43,28 @@ export async function getTopHolders(): Promise<TokenHolder[]> {
         id: "pbtc-holders",
         method: "getTokenLargestAccounts",
         params: [PBTC_TOKEN_MINT],
+      }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`Helius API error: ${response.status}`)
+    }
+
+    const data = await response.json()
+    
+    if (data.error) {
+      throw new Error(data.error.message || "RPC error")
+    }
+    
+    const accounts: TokenAccountInfo[] = data.result?.value || []
+
+    if (accounts.length === 0) {
+      console.log(`[HELIUS] No token accounts found for mint ${PBTC_TOKEN_MINT}`)
+      console.log(`[HELIUS] This could mean: 1) Token has no holders yet, 2) Mint address is incorrect, 3) Token is on different network`)
+      return []
+    }
+
+    console.log(`[HELIUS] Found ${accounts.length} token accounts for mint ${PBTC_TOKEN_MINT}`)
       }),
     })
 
@@ -115,12 +132,10 @@ export async function getTopHolders(): Promise<TokenHolder[]> {
  * Get owner wallet address from a token account
  */
 export async function getTokenAccountOwner(tokenAccount: string): Promise<string | null> {
-  const heliusApiKey = process.env.HELIUS_API_KEY
-
-  if (!heliusApiKey) return null
+  if (!HELIUS_API_KEY) return null
 
   try {
-    const response = await fetch(`https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`, {
+    const response = await fetch(`https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

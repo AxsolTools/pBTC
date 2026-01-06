@@ -67,7 +67,6 @@ export async function getOnChainActivities(limit: number = 50): Promise<OnChainA
     // Fetch token swaps (buys/sells) for the mint address
     try {
       console.log(`[ACTIVITY] Fetching token swaps for mint: ${PBTC_TOKEN_MINT.slice(0, 8)}...`)
-      console.log(`[ACTIVITY] HELIUS_API_KEY check: ${!!process.env.HELIUS_API_KEY ? 'FOUND' : 'NOT FOUND'}`)
       const tokenSwaps = await getEnhancedTransactionsForAddress(PBTC_TOKEN_MINT, limit)
       
       // Import the new function

@@ -42,19 +42,16 @@ export async function getEnhancedTransactionsForAddress(
   address: string,
   limit: number = 50,
 ): Promise<HeliusEnhancedTransaction[]> {
-  const heliusApiKey = process.env.HELIUS_API_KEY
+  // Import HELIUS_API_KEY from connection (read at module level)
+  const { HELIUS_API_KEY } = await import("./connection")
 
-  if (!heliusApiKey) {
+  if (!HELIUS_API_KEY) {
     console.error("[HELIUS] Enhanced API key not configured")
-    console.error(`[HELIUS] Environment check - HELIUS_API_KEY exists: ${!!process.env.HELIUS_API_KEY}`)
-    console.error(`[HELIUS] All HELIUS env vars:`, Object.keys(process.env).filter(k => k.includes('HELIUS')))
     return []
   }
 
-  console.log(`[HELIUS] Enhanced API key found (length: ${heliusApiKey.length})`)
-
   try {
-    const response = await fetch(`https://api.helius.xyz/v0/addresses/${address}/transactions?api-key=${heliusApiKey}`, {
+    const response = await fetch(`https://api.helius.xyz/v0/addresses/${address}/transactions?api-key=${HELIUS_API_KEY}`, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
