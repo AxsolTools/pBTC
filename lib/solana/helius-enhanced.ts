@@ -150,31 +150,59 @@ export async function getEnhancedTransactionsForTokenMint(
 
       // If transaction involves both our token and WSOL, it's likely a swap
       if (hasTokenMint && hasWSOL) {
-        // Calculate token transfer amounts
-        const tokenTransfers: any[] = []
-        
+        // Find token mint and WSOL balances to calculate swap amounts
+        let tokenAmount = 0
+        let solAmount = 0
+        let wallet = ""
+        let isBuy = false
+
+        // Find token mint transfer
         for (const postBalance of postBalances) {
-          if (postBalance.mint === tokenMint || postBalance.mint === "So11111111111111111111111111111111111111112") {
+          if (postBalance.mint === tokenMint) {
             const preBalance = preBalances.find((b: any) => 
-              b.accountIndex === postBalance.accountIndex && b.mint === postBalance.mint
+              b.accountIndex === postBalance.accountIndex && b.mint === tokenMint
             )
             
             const preAmount = preBalance ? parseFloat(preBalance.uiTokenAmount?.uiAmountString || "0") : 0
             const postAmount = parseFloat(postBalance.uiTokenAmount?.uiAmountString || "0")
-            const amount = Math.abs(postAmount - preAmount)
-
-            if (amount > 0) {
-              tokenTransfers.push({
-                mint: postBalance.mint,
-                tokenAmount: amount,
-                fromUserAccount: preBalance?.owner || "",
-                toUserAccount: postBalance.owner || "",
-              })
+            tokenAmount = Math.abs(postAmount - preAmount)
+            
+            // If token increased, it's a buy; if decreased, it's a sell
+            isBuy = postAmount > preAmount
+            wallet = postBalance.owner || tx.transaction.message.accountKeys[0] || ""
+          }
+          
+          // Find WSOL transfer (SOL amount)
+          if (postBalance.mint === "So11111111111111111111111111111111111111112") {
+            const preBalance = preBalances.find((b: any) => 
+              b.accountIndex === postBalance.accountIndex && b.mint === "So11111111111111111111111111111111111111112"
+            )
+            
+            const preAmount = preBalance ? parseFloat(preBalance.uiTokenAmount?.uiAmountString || "0") : 0
+            const postAmount = parseFloat(postBalance.uiTokenAmount?.uiAmountString || "0")
+            solAmount = Math.abs(postAmount - preAmount)
+            
+            if (!wallet) {
+              wallet = postBalance.owner || tx.transaction.message.accountKeys[0] || ""
             }
           }
         }
 
-        if (tokenTransfers.length > 0) {
+        // Also check native SOL transfers
+        if (solAmount === 0 && tx.meta.preBalances && tx.meta.postBalances) {
+          for (let i = 0; i < tx.meta.postBalances.length; i++) {
+            const diff = (tx.meta.postBalances[i] - tx.meta.preBalances[i]) / 1e9 // Convert lamports to SOL
+            if (Math.abs(diff) > 0.01) {
+              solAmount = Math.abs(diff)
+              if (!wallet && i < tx.transaction.message.accountKeys.length) {
+                wallet = tx.transaction.message.accountKeys[i] || ""
+              }
+              break
+            }
+          }
+        }
+
+        if (solAmount > 0.01 && tokenAmount > 0) {
           swapTransactions.push({
             signature,
             type: "SWAP",
@@ -184,7 +212,22 @@ export async function getEnhancedTransactionsForTokenMint(
             feePayer: tx.transaction.message.accountKeys[0] || "",
             slot: tx.slot,
             timestamp: blockTime,
-            tokenTransfers,
+            tokenTransfers: [
+              {
+                mint: tokenMint,
+                tokenAmount: tokenAmount,
+                fromUserAccount: isBuy ? "" : wallet,
+                toUserAccount: isBuy ? wallet : "",
+                tokenStandard: "Fungible",
+              },
+              {
+                mint: "So11111111111111111111111111111111111111112",
+                tokenAmount: solAmount,
+                fromUserAccount: isBuy ? wallet : "",
+                toUserAccount: isBuy ? "" : wallet,
+                tokenStandard: "Fungible",
+              },
+            ],
             nativeTransfers: [],
             instructions: [],
           })

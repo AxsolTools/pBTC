@@ -144,12 +144,45 @@ export function ActivityTerminal() {
   const [newIds, setNewIds] = useState<Set<string>>(new Set())
 
   const { data, mutate } = useSWR("/api/activity?limit=50", fetcher, {
-    refreshInterval: 5000, // Poll every 5 seconds for on-chain data
+    refreshInterval: 3000, // Poll every 3 seconds for on-chain data
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
     onSuccess: (data) => {
       if (data?.activities) {
-        setActivities(data.activities)
+        // Merge new activities with existing ones, keeping unique by tx_signature
+        setActivities((prev) => {
+          const activityMap = new Map<string, Activity>()
+          
+          // Add existing activities first
+          prev.forEach((a) => {
+            if (a.tx_signature) {
+              activityMap.set(a.tx_signature, a)
+            }
+          })
+          
+          // Add/update with new activities
+          data.activities.forEach((a: Activity) => {
+            if (a.tx_signature) {
+              // Mark as new if it wasn't in previous list
+              if (!activityMap.has(a.tx_signature)) {
+                setNewIds((prevIds) => new Set(prevIds).add(a.id || a.tx_signature))
+                setTimeout(() => {
+                  setNewIds((prevIds) => {
+                    const next = new Set(prevIds)
+                    next.delete(a.id || a.tx_signature)
+                    return next
+                  })
+                }, 3000)
+              }
+              activityMap.set(a.tx_signature, a)
+            }
+          })
+          
+          // Convert to array and sort by created_at (newest first)
+          return Array.from(activityMap.values()).sort((a, b) => 
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          ).slice(0, 50)
+        })
       }
     },
   })
