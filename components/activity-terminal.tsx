@@ -191,7 +191,7 @@ export function ActivityTerminal() {
 
   return (
     <section id="terminal" className="py-12">
-      <div className="mx-auto max-w-7xl px-6">
+      <div className="mx-auto w-full px-6">
         <div className="mb-6 flex items-center gap-3">
           <div className="h-3 w-3 rounded-full bg-gold animate-pulse" />
           <h2 className="text-lg font-mono font-bold tracking-wider text-foreground">LIVE TERMINAL</h2>

@@ -51,7 +51,7 @@ export function Countdown() {
 
   return (
     <section className="relative border-y border-border bg-surface py-8">
-      <div className="mx-auto max-w-7xl px-6">
+      <div className="mx-auto w-full px-6">
         <div className="flex flex-col items-center justify-center gap-4">
           <span className="text-xs text-gold-muted font-mono uppercase tracking-[0.2em]">Next Buyback In</span>
 

@@ -122,7 +122,7 @@ export function Leaderboard() {
 
   return (
     <section id="leaderboard" className="py-12 border-t border-border">
-      <div className="mx-auto max-w-7xl px-6">
+      <div className="mx-auto w-full px-6">
         <div className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="h-3 w-3 rounded-full bg-gold" />

@@ -26,7 +26,7 @@ export function Hero() {
       {/* Background grid */}
       <div className="absolute inset-0 bg-[linear-gradient(rgba(212,175,55,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(212,175,55,0.03)_1px,transparent_1px)] bg-[size:60px_60px]" />
 
-      <div className="relative mx-auto max-w-7xl px-6">
+      <div className="relative mx-auto w-full px-6">
         <div className="grid gap-12 lg:grid-cols-5">
           {/* Left: Lore & Headlines */}
           <div className="lg:col-span-3 flex flex-col justify-center">
